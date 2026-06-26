@@ -1,0 +1,14 @@
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.tfvars
+!*.tfvars.example
+.env
+*.pem
+*.key
+node_modules/
+__pycache__/
+*.zip
+.DS_Store

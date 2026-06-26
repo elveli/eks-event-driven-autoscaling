@@ -1,0 +1,14 @@
+# Plain CPU HPA on the web tier — intentionally included to contrast
+# resource-based scaling (HPA) with event-driven scaling (KEDA).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: burstlab-web
+  namespace: burstlab
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: burstlab-web }
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }

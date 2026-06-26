@@ -1,0 +1,20 @@
+# KEDA ScaledObject — the heart of the demo. Scales the worker on SQS depth,
+# all the way to zero.
+# TODO: set queueURL, region, and tune queueLength (messages per pod).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: burstlab-worker
+  namespace: burstlab
+spec:
+  scaleTargetRef:
+    name: burstlab-worker
+  minReplicaCount: 0
+  maxReplicaCount: 50
+  triggers:
+    - type: aws-sqs-queue
+      metadata:
+        queueURL: TODO-jobs-queue-url
+        queueLength: "5"
+        awsRegion: us-east-1
+        identityOwner: operator   # use KEDA operator's IRSA role

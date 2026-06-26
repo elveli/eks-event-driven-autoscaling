@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Bash(terraform fmt)",
+      "Bash(terraform fmt -recursive)",
+      "Bash(terraform validate)",
+      "Bash(terraform init)",
+      "Bash(terraform plan)",
+      "Bash(terraform plan -out=*)",
+      "Bash(tflint)",
+      "Bash(git status)",
+      "Bash(git diff)",
+      "Bash(git add *)",
+      "Bash(docker build *)",
+      "Bash(kubectl get *)",
+      "Bash(kubectl describe *)",
+      "Bash(helm template *)"
+    ],
+    "ask": [
+      "Bash(terraform apply)",
+      "Bash(terraform apply *)",
+      "Bash(terraform destroy)",
+      "Bash(terraform destroy *)",
+      "Bash(kubectl apply *)",
+      "Bash(kubectl delete *)",
+      "Bash(helm install *)",
+      "Bash(helm upgrade *)",
+      "Bash(docker push *)",
+      "Bash(aws *)",
+      "Bash(git push *)"
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+# Copy to terraform.tfvars (gitignored) and adjust.
+aws_region = "us-east-1"
+env        = "dev"

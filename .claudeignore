@@ -1,0 +1,20 @@
+# Never read Terraform internals / state
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Never read secrets or real var files
+*.tfvars
+!*.tfvars.example
+.env
+*.pem
+*.key
+
+# Build noise
+node_modules/
+__pycache__/
+*.zip
+dist/

@@ -1,0 +1,23 @@
+# App CI: build -> Trivy scan -> push to ECR (immutable git-SHA tag) ->
+# bump the image tag in gitops/manifests so Argo CD syncs the new version.
+# TODO: matrix over web + worker; set ECR registry; add the manifest-bump commit.
+name: app
+on:
+  push: { branches: [main], paths: ["app/**"] }
+permissions:
+  id-token: write
+  contents: write   # to commit the image-tag bump
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: TODO-arn:aws:iam::ACCOUNT:role/burstlab-gha
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@v2
+      # - docker build -t $ECR/burstlab-web:${{ github.sha }} app/web
+      # - Trivy scan (fail on HIGH/CRITICAL)
+      # - docker push  (immutable tag = git SHA, never :latest)
+      # - sed the new tag into gitops/manifests/*-deployment.yaml and commit

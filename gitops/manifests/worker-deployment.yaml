@@ -1,0 +1,20 @@
+# Worker Deployment. ServiceAccount is IRSA-annotated with the worker role
+# (from app-resources module output). KEDA scales this 0..N.
+# TODO: fill image (ECR worker URL @ git-SHA tag — NEVER :latest), env
+#       (QUEUE_URL, BUCKET), resources, and the SA annotation
+#       eks.amazonaws.com/role-arn: <worker_role_arn>.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: burstlab-worker
+  namespace: burstlab
+spec:
+  replicas: 0          # KEDA owns this; start at zero
+  selector: { matchLabels: { app: burstlab-worker } }
+  template:
+    metadata: { labels: { app: burstlab-worker } }
+    spec:
+      serviceAccountName: burstlab-worker
+      containers:
+        - name: worker
+          image: TODO-ecr-worker-url:TODO-sha

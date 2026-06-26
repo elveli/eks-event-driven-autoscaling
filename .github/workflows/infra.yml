@@ -1,0 +1,26 @@
+# Terraform CI. Auth to AWS via OIDC (no stored keys). Plan on PR, apply on main.
+# TODO: set role-to-assume ARN, working-directory, and a plan-comment step.
+name: infra
+on:
+  pull_request: { paths: ["infra/**"] }
+  push: { branches: [main], paths: ["infra/**"] }
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+  pull-requests: write
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: infra/environments/dev } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: TODO-arn:aws:iam::ACCOUNT:role/burstlab-gha
+          aws-region: us-east-1
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform init
+      - run: terraform fmt -check -recursive
+      - run: terraform validate
+      - run: terraform plan -no-color
+      # TODO: gate `terraform apply` on push-to-main only.
