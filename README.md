@@ -1,4 +1,4 @@
-# BurstLab
+# EKS Event-Driven Autoscaling
 
 An EKS showcase: an async job-processing pipeline whose autoscaling is the
 visible product. Submit a batch → jobs hit SQS → worker pods scale **0→N** via

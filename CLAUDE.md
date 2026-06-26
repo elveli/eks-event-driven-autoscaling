@@ -1,4 +1,4 @@
-# CLAUDE.md — BurstLab
+# CLAUDE.md — EKS Event-Driven Autoscaling
 
 Project context for Claude Code. Read this fully at the start of every session.
 This file is the source of truth for architectural decisions. If a request
@@ -6,7 +6,7 @@ conflicts with it, flag the conflict instead of silently choosing.
 
 ---
 
-## What BurstLab is
+## What EKS Event-Driven Autoscaling is
 
 An EKS showcase: an asynchronous job-processing pipeline whose autoscaling is
 the visible product. A user submits a batch of work through a web UI; jobs flow
@@ -54,9 +54,12 @@ clarity and "demonstrably correct" over cleverness.
 ## Conventions
 
 - **Region:** `us-east-1` (variable: `aws_region`, default set, overridable).
-- **Naming:** prefix every resource with `burstlab-` and the env, e.g.
-  `burstlab-dev-jobs` (SQS), `burstlab-dev` (cluster).
-- **Tags:** every resource gets `Project=burstlab`, `Env`, `ManagedBy=terraform`.
+- **Naming:** the project/repo name is `eks-event-driven-autoscaling` (used for
+  the Project tag and the state key). AWS/k8s resources use the short prefix
+  **`eda`** plus the env to stay within name-length limits — e.g.
+  `eda-dev-jobs` (SQS), `eda-dev` (cluster), namespace `eda`. Keep these
+  distinct: don't use the long name as a resource prefix.
+- **Tags:** every resource gets `Project=eda`, `Env`, `ManagedBy=terraform`.
 - **Terraform:** `>= 1.7`. AWS provider `~> 5.x`. One module per concern under
   `infra/modules/`. Environments compose modules under `infra/environments/`.
 - **State:** S3 backend + DynamoDB lock table, created by `infra/bootstrap`

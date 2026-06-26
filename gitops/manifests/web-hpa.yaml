@@ -3,10 +3,10 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: burstlab-web
-  namespace: burstlab
+  name: eda-web
+  namespace: eda
 spec:
-  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: burstlab-web }
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: eda-web }
   minReplicas: 2
   maxReplicas: 10
   metrics:

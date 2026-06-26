@@ -4,13 +4,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: burstlab-web
-  namespace: burstlab
+  name: eda-web
+  namespace: eda
 spec:
   replicas: 2
-  selector: { matchLabels: { app: burstlab-web } }
+  selector: { matchLabels: { app: eda-web } }
   template:
-    metadata: { labels: { app: burstlab-web } }
+    metadata: { labels: { app: eda-web } }
     spec:
       containers:
         - name: web

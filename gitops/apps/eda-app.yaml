@@ -3,17 +3,17 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: burstlab
+  name: eda
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: TODO-https://github.com/you/burstlab.git
+    repoURL: TODO-https://github.com/you/eks-event-driven-autoscaling.git
     targetRevision: main
     path: gitops/manifests
   destination:
     server: https://kubernetes.default.svc
-    namespace: burstlab
+    namespace: eda
   syncPolicy:
     automated: { prune: true, selfHeal: true }
     syncOptions: ["CreateNamespace=true"]

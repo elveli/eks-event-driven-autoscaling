@@ -6,15 +6,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: burstlab-worker
-  namespace: burstlab
+  name: eda-worker
+  namespace: eda
 spec:
   replicas: 0          # KEDA owns this; start at zero
-  selector: { matchLabels: { app: burstlab-worker } }
+  selector: { matchLabels: { app: eda-worker } }
   template:
-    metadata: { labels: { app: burstlab-worker } }
+    metadata: { labels: { app: eda-worker } }
     spec:
-      serviceAccountName: burstlab-worker
+      serviceAccountName: eda-worker
       containers:
         - name: worker
           image: TODO-ecr-worker-url:TODO-sha

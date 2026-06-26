@@ -3,8 +3,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: burstlab
-  namespace: burstlab
+  name: eda
+  namespace: eda
   annotations:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -15,4 +15,4 @@ spec:
         paths:
           - path: /
             pathType: Prefix
-            backend: { service: { name: burstlab-web, port: { number: 80 } } }
+            backend: { service: { name: eda-web, port: { number: 80 } } }

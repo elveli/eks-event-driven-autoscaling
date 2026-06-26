@@ -15,14 +15,14 @@ provider "aws" {
   region = var.aws_region
   default_tags {
     tags = {
-      Project   = "burstlab"
+      Project   = "eda"
       Env       = var.env
       ManagedBy = "terraform"
     }
   }
 }
 
-# locals { name_prefix = "burstlab-${var.env}" }
+# locals { name_prefix = "eda-${var.env}" }
 
 # ---- Phase 2 ----
 # module "network" {

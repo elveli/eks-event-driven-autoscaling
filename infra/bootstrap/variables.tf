@@ -10,5 +10,5 @@ variable "state_bucket_name" {
 
 variable "lock_table_name" {
   type    = string
-  default = "burstlab-tf-locks"
+  default = "eda-tf-locks"
 }

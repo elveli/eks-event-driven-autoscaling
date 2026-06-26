@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: TODO-arn:aws:iam::ACCOUNT:role/burstlab-gha
+          role-to-assume: TODO-arn:aws:iam::ACCOUNT:role/eda-gha
           aws-region: us-east-1
       - uses: hashicorp/setup-terraform@v3
       - run: terraform init

@@ -3,9 +3,9 @@
 terraform {
   backend "s3" {
     bucket         = "TODO-state-bucket-name"
-    key            = "burstlab/dev/terraform.tfstate"
+    key            = "eda/dev/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "burstlab-tf-locks"
+    dynamodb_table = "eda-tf-locks"
     encrypt        = true
   }
 }
