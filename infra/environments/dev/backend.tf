@@ -2,7 +2,7 @@
 #   terraform init -migrate-state
 terraform {
   backend "s3" {
-    bucket         = "TODO-state-bucket-name"
+    bucket         = "eks-event-driven-autoscaling-tfstate-558543825081"
     key            = "eda/dev/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "eda-tf-locks"

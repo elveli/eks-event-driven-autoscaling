@@ -8,6 +8,7 @@ terraform {
     aws        = { source = "hashicorp/aws", version = "~> 5.0" }
     helm       = { source = "hashicorp/helm", version = "~> 2.0" }
     kubernetes = { source = "hashicorp/kubernetes", version = "~> 2.0" }
+    kubectl    = { source = "gavinbunney/kubectl", version = "~> 1.14" }
   }
 }
 
@@ -22,22 +23,50 @@ provider "aws" {
   }
 }
 
-# locals { name_prefix = "eda-${var.env}" }
+locals { name_prefix = "eda-${var.env}" }
 
 # ---- Phase 2 ----
-# module "network" {
-#   source      = "../../modules/network"
-#   name_prefix = local.name_prefix
-#   aws_region  = var.aws_region
-# }
+module "network" {
+  source      = "../../modules/network"
+  name_prefix = local.name_prefix
+  aws_region  = var.aws_region
+}
 
 # ---- Phase 3 ----
-# module "cluster" {
-#   source      = "../../modules/cluster"
-#   name_prefix = local.name_prefix
-#   vpc_id      = module.network.vpc_id
-#   subnet_ids  = module.network.private_subnet_ids
-# }
+module "cluster" {
+  source      = "../../modules/cluster"
+  name_prefix = local.name_prefix
+  vpc_id      = module.network.vpc_id
+  subnet_ids  = module.network.private_subnet_ids
+}
+
+# Auth for the kubernetes/helm/kubectl providers below. These read from
+# module.cluster, which doesn't exist until the cluster is created in this
+# same apply — see the chicken-and-egg note in modules/cluster/main.tf.
+data "aws_eks_cluster_auth" "this" {
+  name = module.cluster.cluster_name
+}
+
+provider "kubernetes" {
+  host                   = module.cluster.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.cluster.cluster_certificate_authority_data)
+  token                  = data.aws_eks_cluster_auth.this.token
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = module.cluster.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.cluster.cluster_certificate_authority_data)
+    token                  = data.aws_eks_cluster_auth.this.token
+  }
+}
+
+provider "kubectl" {
+  host                   = module.cluster.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.cluster.cluster_certificate_authority_data)
+  token                  = data.aws_eks_cluster_auth.this.token
+  load_config_file       = false
+}
 
 # ---- Phase 4 ----
 # module "platform" {
