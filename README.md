@@ -14,6 +14,124 @@ Terraform · EKS · Karpenter (nodes) · KEDA scale-to-zero + one HPA (pods) ·
 IRSA (no static keys) · AWS Load Balancer Controller (ALB) · SQS/SNS · Lambda ·
 Argo CD (GitOps) · GitHub Actions + OIDC + Trivy (CI/CD).
 
+## Architecture
+
+Full target design — what's actually deployed is marked **done**; everything
+else is annotated with the phase that builds it (see Build status below).
+
+```mermaid
+flowchart TB
+    User([User browser])
+    GH([git push to app/])
+
+    subgraph Net["Network — done"]
+        ALB["ALB (phase 4)"]
+        NAT["NAT Gateway ×1"]
+        VPCE["VPC endpoints: S3, ECR api/dkr, STS"]
+    end
+
+    subgraph Cluster["EKS eda-dev — done"]
+        SysNG["System node group (2× t3.medium)"]
+        Karpenter["Karpenter controller"]
+        KarpNodes["Karpenter spot nodes (dynamic)"]
+        LBC["AWS LB Controller (phase 4)"]
+        KEDA["KEDA (phase 4)"]
+        ArgoCD["Argo CD (phase 4)"]
+        WebPod["nginx dashboard (phase 6)"]
+        WorkerPod["worker pods (phase 6)"]
+    end
+
+    subgraph AppRes["App resources — phase 5"]
+        SQS[("SQS queue")]
+        S3B[("S3 bucket")]
+        Lambda{{"Lambda validator"}}
+        ECR[("ECR repos")]
+    end
+
+    subgraph Boot["Bootstrap — done"]
+        StateS3[("S3 state bucket")]
+        StateDDB[("DynamoDB lock table")]
+    end
+
+    subgraph CICD["CI/CD — phase 6"]
+        Actions["GitHub Actions + OIDC"]
+        Trivy["Trivy image scan"]
+    end
+
+    IAM["IAM OIDC provider + IRSA roles — done"]
+
+    User -->|HTTPS| ALB --> WebPod
+    WebPod --> Lambda
+    Lambda --> S3B
+    Lambda --> SQS
+    KEDA -->|poll queue depth| SQS
+    KEDA -->|scale 0..N| WorkerPod
+    WorkerPod --> SQS
+    WorkerPod --> S3B
+    Karpenter -. provisions .-> KarpNodes
+    KarpNodes -. hosts .-> WorkerPod
+    LBC -. manages .-> ALB
+    ArgoCD -. syncs manifests .-> Cluster
+    IAM -. federates .-> Karpenter
+
+    GH --> Actions --> Trivy --> ECR
+    Actions -. bumps tag, commits to gitops/ .-> ArgoCD
+```
+
+## Workflow
+
+The two flows that make up "the demo": a user submitting a batch (runtime,
+event-driven autoscaling) and a developer pushing code (CI/CD). Both are
+target-state — phases 4–6 build the pieces these flows depend on.
+
+**Submitting a batch — pods and nodes scale 0→N→0:**
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Web as nginx dashboard
+    participant Lambda
+    participant S3
+    participant SQS
+    participant KEDA
+    participant Worker as worker pods
+    participant Karpenter
+    participant EC2 as EC2 (spot nodes)
+
+    User->>Web: Submit batch
+    Web->>Lambda: Request presigned URL
+    Lambda->>S3: Issue presigned URL
+    Lambda-->>Web: Return URL
+    Web->>S3: Upload batch (direct, presigned)
+    S3->>SQS: Enqueue one job message per item
+    loop every poll interval
+        KEDA->>SQS: Check queue depth
+    end
+    KEDA->>Worker: Scale 0 -> N pods
+    Worker->>Karpenter: Pod unschedulable (no capacity)
+    Karpenter->>EC2: Launch spot node(s)
+    Worker->>SQS: Consume + process job
+    Worker->>S3: Write result
+    Web->>SQS: Poll depth for dashboard
+    Web->>User: Live queue depth / pod count / node count
+    Note over SQS,Worker: Queue drains as jobs complete
+    KEDA->>Worker: Scale N -> 0
+    Karpenter->>EC2: Consolidate + terminate empty nodes
+```
+
+**Pushing code — image build to GitOps sync:**
+
+```mermaid
+flowchart LR
+    Dev["git push to app/"] --> Actions["GitHub Actions\n(OIDC to AWS, no static keys)"]
+    Actions --> Trivy["Trivy image scan"]
+    Trivy -->|pass| ECR["Push to ECR\n(immutable, git-SHA tag)"]
+    ECR --> Bump["Bump image tag\nin gitops/manifests"]
+    Bump --> Repo["Commit to gitops/"]
+    Repo --> ArgoCDSync["Argo CD detects drift"]
+    ArgoCDSync --> ClusterSync["Sync to EKS"]
+```
+
 ## Layout
 
 - `infra/bootstrap` — remote-state bucket + lock table (phase 1, local state)
@@ -32,7 +150,7 @@ Each module and folder has a `README.md` describing exactly what goes in it.
 |---|---|---|
 | 1 | Bootstrap (state bucket + lock table) | ✅ applied |
 | 2 | Network (VPC, single NAT, VPC endpoints) | ✅ applied |
-| 3 | Cluster (EKS, OIDC/IRSA, Karpenter) | 🔄 applying |
+| 3 | Cluster (EKS, OIDC/IRSA, Karpenter) | ✅ applied |
 | 4 | Platform (LB Controller, KEDA, Argo CD) | ⏳ not started |
 | 5 | App resources (SQS, S3, Lambda, ECR, app IRSA) | ⏳ not started |
 | 6 | App + GitOps (worker, dashboard, ScaledObject) | ⏳ not started |
