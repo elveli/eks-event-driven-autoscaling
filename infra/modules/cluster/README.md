@@ -16,7 +16,10 @@ app-resources modules need it to build IRSA roles.
 - **Access:** `authentication_mode = "API"` (EKS access entries), not the
   aws-auth ConfigMap. The system node group gets its access entry from EKS
   automatically; Karpenter's node role does not (it isn't an EKS-managed
-  node group), so it gets one explicit `aws_eks_access_entry`.
+  node group), so it gets one explicit `aws_eks_access_entry` of type
+  `EC2_LINUX` — that type implies the `system:bootstrappers`/`system:nodes`
+  RBAC mapping. A `STANDARD` entry can't be used here: EKS rejects
+  `system:`-prefixed group names on that type.
 - **Karpenter IAM:** the controller policy is transcribed from AWS's official
   Karpenter getting-started CloudFormation template, split into the same five
   managed-policy groupings (node lifecycle, IAM integration, EKS integration,

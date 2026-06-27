@@ -67,9 +67,8 @@ resource "aws_eks_cluster" "main" {
 # for aws_iam_openid_connect_provider).
 
 resource "aws_iam_openid_connect_provider" "this" {
-  url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = []
+  url            = aws_eks_cluster.main.identity[0].oidc[0].issuer
+  client_id_list = ["sts.amazonaws.com"]
 }
 
 locals {
@@ -155,11 +154,13 @@ resource "aws_iam_role_policy_attachment" "karpenter_node" {
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/${each.value}"
 }
 
+# EC2_LINUX access entries don't take kubernetes_groups — the
+# system:bootstrappers/system:nodes mapping is implicit for this type and a
+# STANDARD entry can't use system:-prefixed group names (AWS rejects it).
 resource "aws_eks_access_entry" "karpenter_node" {
-  cluster_name      = aws_eks_cluster.main.name
-  principal_arn     = aws_iam_role.karpenter_node.arn
-  type              = "STANDARD"
-  kubernetes_groups = ["system:bootstrappers", "system:nodes"]
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = aws_iam_role.karpenter_node.arn
+  type          = "EC2_LINUX"
 }
 
 # ---- Karpenter: controller IAM role (IRSA) ----
@@ -533,7 +534,7 @@ resource "aws_cloudwatch_event_target" "karpenter_interruption_queue" {
 
 resource "helm_release" "karpenter" {
   name             = "karpenter"
-  repository       = "oci://public.ecr.aws/karpenter/karpenter"
+  repository       = "oci://public.ecr.aws/karpenter"
   chart            = "karpenter"
   version          = var.karpenter_version
   namespace        = var.karpenter_namespace
@@ -571,6 +572,9 @@ resource "helm_release" "karpenter" {
 # above. Subnets are discovered via the karpenter.sh/discovery tag the
 # network module applies to private subnets; the security group is the
 # cluster's own control-plane security group, referenced directly by ID.
+# amiSelectorTerms uses the al2023@latest alias — fine for a demo where
+# nodes are short-lived and ephemeral; Karpenter's own docs call this out as
+# not recommended for production (an AMI release drifts/replaces nodes).
 
 resource "kubectl_manifest" "karpenter_node_class" {
   yaml_body = yamlencode({
@@ -578,8 +582,10 @@ resource "kubectl_manifest" "karpenter_node_class" {
     kind       = "EC2NodeClass"
     metadata   = { name = "default" }
     spec = {
-      amiFamily = "AL2023"
-      role      = aws_iam_role.karpenter_node.name
+      role = aws_iam_role.karpenter_node.name
+      amiSelectorTerms = [
+        { alias = "al2023@latest" },
+      ]
       subnetSelectorTerms = [
         { tags = { "karpenter.sh/discovery" = var.name_prefix } },
       ]
