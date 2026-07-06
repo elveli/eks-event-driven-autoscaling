@@ -9,6 +9,7 @@ terraform {
     helm       = { source = "hashicorp/helm", version = "~> 2.0" }
     kubernetes = { source = "hashicorp/kubernetes", version = "~> 2.0" }
     kubectl    = { source = "gavinbunney/kubectl", version = "~> 1.14" }
+    archive    = { source = "hashicorp/archive", version = "~> 2.0" }
   }
 }
 
@@ -77,8 +78,8 @@ module "platform" {
 }
 
 # ---- Phase 5 ----
-# module "app_resources" {
-#   source            = "../../modules/app-resources"
-#   name_prefix       = local.name_prefix
-#   oidc_provider_arn = module.cluster.oidc_provider_arn
-# }
+module "app_resources" {
+  source            = "../../modules/app-resources"
+  name_prefix       = local.name_prefix
+  oidc_provider_arn = module.cluster.oidc_provider_arn
+}

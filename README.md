@@ -172,8 +172,8 @@ goes in it.
 | 1 | Bootstrap (state bucket + lock table) | ✅ applied |
 | 2 | Network (VPC, single NAT, VPC endpoints) | ✅ applied |
 | 3 | Cluster (EKS, OIDC/IRSA, Karpenter) | ✅ applied |
-| 4 | Platform (LB Controller, KEDA, Argo CD) | ⏳ not started |
-| 5 | App resources (SQS, S3, Lambda, ECR, app IRSA) | ⏳ not started |
+| 4 | Platform (LB Controller, KEDA, Argo CD) | 🧩 code complete, plans clean — awaiting apply |
+| 5 | App resources (SQS, S3, Lambda, ECR, app IRSA, CI OIDC) | 🧩 code complete, plans clean — awaiting apply |
 | 6 | App + GitOps (worker, dashboard, ScaledObject) | ⏳ not started |
 
 Continuing the build with Claude Code: open this folder, confirm it has read
