@@ -19,8 +19,11 @@ Argo CD (GitOps) · GitHub Actions + OIDC + Trivy (CI/CD).
 Full target design — what's actually deployed is marked **done**; everything
 else is annotated with the phase that builds it (see Build status below).
 For the network view specifically (ingress path, namespaces, subnets/CIDRs,
-egress routes), open [docs/network-diagram.html](docs/network-diagram.html)
-in a browser — it's self-contained, no server needed.
+egress routes), see the
+[network diagram](https://htmlpreview.github.io/?https://github.com/elveli/eks-event-driven-autoscaling/blob/main/docs/network-diagram.html)
+(renders [docs/network-diagram.html](docs/network-diagram.html) via
+htmlpreview.github.io — the file itself is self-contained if you'd rather
+open it locally).
 
 ```mermaid
 flowchart TB
