@@ -18,6 +18,9 @@ Argo CD (GitOps) · GitHub Actions + OIDC + Trivy (CI/CD).
 
 Full target design — what's actually deployed is marked **done**; everything
 else is annotated with the phase that builds it (see Build status below).
+For the network view specifically (ingress path, namespaces, subnets/CIDRs,
+egress routes), open [docs/network-diagram.html](docs/network-diagram.html)
+in a browser — it's self-contained, no server needed.
 
 ```mermaid
 flowchart TB
