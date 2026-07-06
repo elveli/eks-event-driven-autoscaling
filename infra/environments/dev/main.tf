@@ -69,11 +69,12 @@ provider "kubectl" {
 }
 
 # ---- Phase 4 ----
-# module "platform" {
-#   source            = "../../modules/platform"
-#   cluster_name      = module.cluster.cluster_name
-#   oidc_provider_arn = module.cluster.oidc_provider_arn
-# }
+module "platform" {
+  source            = "../../modules/platform"
+  cluster_name      = module.cluster.cluster_name
+  oidc_provider_arn = module.cluster.oidc_provider_arn
+  vpc_id            = module.network.vpc_id
+}
 
 # ---- Phase 5 ----
 # module "app_resources" {

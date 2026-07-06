@@ -134,15 +134,30 @@ flowchart LR
 
 ## Layout
 
-- `infra/bootstrap` — remote-state bucket + lock table (phase 1, local state)
-- `infra/environments/dev` — composes modules; backend + tfvars + the
-  `manage-aws-dev-stack.sh` on/off script
-- `infra/modules/{network,cluster,platform,app-resources}` — phases 2–5
-- `app/{web,worker,lambda}` — nginx dashboard, job processor, front-door Lambda
-- `gitops/{apps,manifests}` — Argo CD Application + k8s manifests
-- `.github/workflows` — `infra.yml`, `app.yml`
+```
+.
+├── .github/workflows/          infra.yml (plan/apply) + app.yml (build/scan/push)
+├── app/
+│   ├── lambda/                 request validator / presigned-URL issuer
+│   ├── web/                    nginx + static dashboard
+│   └── worker/                 job processor, scaled by KEDA on SQS depth
+├── gitops/
+│   ├── apps/                   Argo CD Application manifests
+│   └── manifests/              Deployments, ScaledObject, Ingress, HPA
+├── infra/
+│   ├── bootstrap/              phase 1: state bucket + lock table (local state)
+│   ├── environments/dev/       composes modules; backend + tfvars + on/off script
+│   └── modules/
+│       ├── network/            phase 2: VPC, subnets, single NAT, VPC endpoints
+│       ├── cluster/            phase 3: EKS, OIDC, IRSA, Karpenter
+│       ├── platform/            phase 4: LB Controller, KEDA, Argo CD (Helm)
+│       └── app-resources/       phase 5: SQS, S3, Lambda, ECR, app IRSA
+├── CLAUDE.md                   architecture decisions, build phases, conventions
+└── README.md
+```
 
-Each module and folder has a `README.md` describing exactly what goes in it.
+Each module and app folder has its own `README.md` describing exactly what
+goes in it.
 
 ## Build status
 
