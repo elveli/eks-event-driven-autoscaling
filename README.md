@@ -218,9 +218,9 @@ make gitops      # 5. hand the app to Argo CD
 make url         # 6. the dashboard's ALB address (takes ~2 min to provision)
 ```
 
-Order matters at two points: CI needs the `eda-gha` role and ECR repos (step
-1) plus the `AWS_ROLE_ARN` variable (step 3) before it can push; Argo CD
-(step 5) deploys whatever image tags CI pinned in
+Order matters at two points: CI needs the `eda-gha` role and ECR repos
+(step 1) plus the `AWS_ROLE_ARN` variable (step 3) before it can push;
+Argo CD (step 5) deploys whatever image tags CI pinned in
 `gitops/manifests/kustomization.yaml` (step 4), so until CI has run once
 there is nothing deployable.
 
@@ -280,7 +280,7 @@ parameterized target: `make submit` enqueues `N=50` jobs of `DUR=15` seconds.
 | `make logs-lambda` | follow the front-door Lambda's logs |
 | `make argocd` | Argo CD UI on localhost:8080 (prints the admin password) |
 | `make irsa` | service accounts annotated with IAM roles — the AWS-access wiring |
-| `make inventory` | every AWS resource tagged `Project=eda` (empty after a destroy) |
+| `make inventory` | leak check: `Project=eda` resources + controller-created orphans (after destroy: only the bootstrap pair) |
 
 ## Cost discipline
 

@@ -130,7 +130,24 @@ irsa:        ## service accounts annotated with IAM roles — the cluster's AWS-
 	  | .metadata.namespace + " " + .metadata.name + " " \
 	    + (.metadata.annotations["eks.amazonaws.com/role-arn"] | sub(".*role/"; ""))'; } | column -t
 
-inventory:   ## every AWS resource carrying the Project=eda tag (should be empty after destroy)
-	aws resourcegroupstaggingapi get-resources --region "$$($(TF) output -raw aws_region)" \
+# Region falls back to the variables.tf default because the primary use of
+# inventory is AFTER destroy — when the state has no outputs left to read
+# (and `terraform output` then exits 0 with EMPTY stdout, so guard the value).
+inventory:   ## leak check: Project=eda resources + controller-created orphans (after destroy: only the bootstrap pair)
+	@REGION="$$($(TF) output -raw aws_region 2>/dev/null)"; REGION="$${REGION:-us-east-1}"; \
+	echo "── Terraform-managed (Project=eda tag) ──"; \
+	aws resourcegroupstaggingapi get-resources --region "$$REGION" \
 	  --tag-filters Key=Project,Values=eda \
-	  --query 'ResourceTagMappingList[].ResourceARN' --output table
+	  --query 'ResourceTagMappingList[].ResourceARN' --output table; \
+	echo ""; \
+	echo "── controller-created (NO Project tag — orphaned if the cluster dies first) ──"; \
+	echo "Karpenter EC2 instances:"; \
+	aws ec2 describe-instances --region "$$REGION" \
+	  --filters "Name=tag-key,Values=karpenter.sh/nodeclaim" \
+	            "Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped" \
+	  --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name]' --output text \
+	  | column -t | sed 's/^/  /' | grep . || echo "  none"; \
+	echo "LB-controller ALBs (k8s- name prefix):"; \
+	aws elbv2 describe-load-balancers --region "$$REGION" \
+	  --query 'LoadBalancers[?starts_with(LoadBalancerName, `k8s-`)].[LoadBalancerName,DNSName]' --output text \
+	  | column -t | sed 's/^/  /' | grep . || echo "  none"
