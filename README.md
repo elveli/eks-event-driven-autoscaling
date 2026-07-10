@@ -8,6 +8,20 @@ The full architecture, conventions, and build phases are documented in
 [`CLAUDE.md`](CLAUDE.md) — that file is the source of truth; this README is
 the quick-start.
 
+## Contents
+
+- [Stack](#stack)
+- [Architecture](#architecture)
+- [Workflow](#workflow)
+- [Layout](#layout)
+- [Build status](#build-status)
+- [Operating the dev stack](#operating-the-dev-stack)
+  - [Bring-up runbook](#bring-up-runbook)
+  - [Driving the demo](#driving-the-demo)
+  - [Make targets](#make-targets)
+- [Cost discipline](#cost-discipline)
+- [Guardrails already set](#guardrails-already-set)
+
 ## Stack
 
 Terraform · EKS · Karpenter (nodes) · KEDA scale-to-zero + one HPA (pods) ·
@@ -191,7 +205,9 @@ target is also runnable by hand). The lifecycle targets go through
 directory only — it never touches `infra/bootstrap`, so the state bucket and
 lock table stay up between sessions.
 
-### Bring-up runbook (clean AWS → running demo)
+### Bring-up runbook
+
+Clean AWS account → running demo, in order:
 
 ```sh
 make apply       # 1. terraform: VPC + EKS + Karpenter + platform + app resources (~20 min)
@@ -227,9 +243,44 @@ launches spot node(s) → the queue drains → pods scale back to 0 → Karpente
 consolidates the empty nodes away. The dashboard shows all of it; so does
 `make watch`.
 
-More pokes: `make scaling` (ScaledObject + HPA side by side), `make results`
-(worker output in S3), `make dlq` (failed jobs), `make logs-worker`,
-`make argocd` (the Argo CD UI), `make irsa` (the cluster's AWS-access wiring).
+Everything else worth poking at is in the [make targets](#make-targets) table
+below.
+
+### Make targets
+
+`make help` prints this same menu in the terminal. Defaults for the
+parameterized target: `make submit` enqueues `N=50` jobs of `DUR=15` seconds.
+
+| Target | What it does |
+|---|---|
+| **Lifecycle** — via `manage-aws-dev-stack.sh`, never touches `infra/bootstrap` | |
+| `make plan` | terraform plan |
+| `make apply` | provision VPC + EKS + Karpenter + platform + app resources (~20 min) |
+| `make destroy` | the cost kill switch: tear it all down (state bucket survives) |
+| `make kubeconfig` | point kubectl at the cluster |
+| **CI / GitOps bootstrap** — once per bring-up, in this order | |
+| `make ci-var` | give GitHub Actions the CI role ARN (repo variable `AWS_ROLE_ARN`) |
+| `make ci-run` | build + Trivy-scan + push images, pin tags in gitops/ (watches the run) |
+| `make gitops` | hand the app over to Argo CD (applies the Application) |
+| **Driving the demo** | |
+| `make url` | the dashboard's ALB address (empty until the LB controller provisions it) |
+| `make submit N=100 DUR=20` | enqueue a batch straight at the Lambda |
+| `make watch` | the whole story every 2s: queue depth, worker pods, nodes |
+| `make stats` | queue depth as the dashboard sees it (via the Lambda) |
+| **Poking at state** | |
+| `make queue` | raw SQS attributes of the jobs queue |
+| `make dlq` | anything in the dead-letter queue? (3 failed attempts land here) |
+| `make purge` | drop every queued job (in-flight ones finish; pods then drain to 0) |
+| `make results` | worker output objects in S3, newest last + total count |
+| `make pods` | every pod in the cluster, with the node it runs on |
+| `make nodes` | nodes with their provenance (system node group vs Karpenter) |
+| `make nodegroups` | node capacity, both kinds: static system group + Karpenter pool/claims |
+| `make scaling` | both autoscalers side by side: KEDA ScaledObject + plain HPA |
+| `make logs-worker` | follow all worker logs (one JSON line per job event) |
+| `make logs-lambda` | follow the front-door Lambda's logs |
+| `make argocd` | Argo CD UI on localhost:8080 (prints the admin password) |
+| `make irsa` | service accounts annotated with IAM roles — the AWS-access wiring |
+| `make inventory` | every AWS resource tagged `Project=eda` (empty after a destroy) |
 
 ## Cost discipline
 

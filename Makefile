@@ -4,7 +4,7 @@ TF    := terraform -chdir=infra/environments/dev
 STACK := infra/environments/dev/manage-aws-dev-stack.sh
 
 .DEFAULT_GOAL := help
-.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results watch pods nodes scaling logs-worker logs-lambda irsa inventory
+.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results watch pods nodes nodegroups scaling logs-worker logs-lambda irsa inventory
 
 help:        ## this menu
 	@grep -E '^[a-zA-Z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN { FS = ":.*?## " } { printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2 }'
@@ -92,11 +92,27 @@ results:     ## worker output objects in S3, newest last + total count
 	@aws s3 ls "s3://$$($(TF) output -raw bucket_name)/results/" | tail -20
 	@echo "total: $$(aws s3 ls "s3://$$($(TF) output -raw bucket_name)/results/" | wc -l | tr -d ' ') results"
 
-pods:        ## everything running in the eda namespace, with nodes
-	kubectl get pods -n eda -o wide
+pods:        ## every pod in the cluster, with the node it runs on
+	kubectl get pods -A -o wide
 
 nodes:       ## nodes with their provenance (system node group vs Karpenter)
 	kubectl get nodes -L karpenter.sh/nodepool,node.kubernetes.io/instance-type,karpenter.sh/capacity-type
+
+nodegroups:  ## node capacity, both kinds: static system group + Karpenter pool/claims
+	@REGION="$$($(TF) output -raw aws_region)"; CLUSTER="$$($(TF) output -raw cluster_name)"; \
+	{ echo "NAME STATUS CAPACITY TYPES MIN DESIRED MAX"; \
+	aws eks list-nodegroups --region "$$REGION" --cluster-name "$$CLUSTER" \
+	    --query 'nodegroups[]' --output text | tr '\t' '\n' | while read -r ng; do \
+	  aws eks describe-nodegroup --region "$$REGION" --cluster-name "$$CLUSTER" --nodegroup-name "$$ng" \
+	    --query 'nodegroup.[nodegroupName,status,capacityType,join(`,`,instanceTypes),scalingConfig.minSize,scalingConfig.desiredSize,scalingConfig.maxSize]' \
+	    --output text; \
+	done; } | column -t
+	@echo ""
+	@echo "Karpenter NodePool (its cpu limit is the runaway-cost guardrail):"
+	@kubectl get nodepool -o wide || echo "  (cluster unreachable)"
+	@echo ""
+	@echo "Karpenter NodeClaims (one per launched node; empty = workers at zero):"
+	@kubectl get nodeclaims -o wide || echo "  (cluster unreachable)"
 
 scaling:     ## both autoscalers side by side: KEDA ScaledObject + plain HPA
 	kubectl get scaledobject,hpa,deploy -n eda
