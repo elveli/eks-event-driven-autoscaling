@@ -1,14 +1,21 @@
 # Plain CPU HPA on the web tier — intentionally included to contrast
-# resource-based scaling (HPA) with event-driven scaling (KEDA).
+# resource-based scaling (HPA reacts to load already inside the pods) with
+# event-driven scaling (KEDA reacts to work waiting in the queue, and can
+# start from zero — an HPA never can).
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: eda-web
   namespace: eda
 spec:
-  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: eda-web }
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: eda-web
   minReplicas: 2
   maxReplicas: 10
   metrics:
     - type: Resource
-      resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 60 }

@@ -5,4 +5,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY worker.py .
+# Unbuffered so job logs stream to kubectl logs in real time.
+ENV PYTHONUNBUFFERED=1
 CMD ["python", "worker.py"]

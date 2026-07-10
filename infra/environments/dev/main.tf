@@ -37,7 +37,6 @@ module "network" {
 module "cluster" {
   source      = "../../modules/cluster"
   name_prefix = local.name_prefix
-  vpc_id      = module.network.vpc_id
   subnet_ids  = module.network.private_subnet_ids
 }
 
@@ -82,4 +81,50 @@ module "app_resources" {
   source            = "../../modules/app-resources"
   name_prefix       = local.name_prefix
   oidc_provider_arn = module.cluster.oidc_provider_arn
+}
+
+# ---- Phase 6: app identity/config contract ----
+# The Kubernetes-side half of the app wiring. These three objects carry
+# AWS-specific values (a role ARN, the queue URL, the Lambda origin) that must
+# NOT be committed to gitops/ (CLAUDE.md rule 3: no account IDs in code), so
+# Terraform owns them and the Argo CD-synced manifests reference them by name:
+#   - namespace eda             — Argo CD syncs the app into it
+#   - ServiceAccount eda-worker — IRSA annotation -> worker role
+#   - ConfigMap eda-app-config  — QUEUE_URL/BUCKET/AWS_REGION for the worker,
+#     LAMBDA_ORIGIN for the dashboard's nginx /api proxy. The KEDA
+#     ScaledObject also gets the queue URL from here, indirectly: it uses
+#     queueURLFromEnv, which KEDA resolves from the worker container's env.
+# Everything with no AWS identifier in it (eda-web SA, RBAC, Deployments,
+# Service, Ingress, ScaledObject, HPA) lives in gitops/manifests instead.
+
+resource "kubernetes_namespace" "eda" {
+  metadata {
+    name = "eda"
+  }
+}
+
+resource "kubernetes_service_account" "worker" {
+  metadata {
+    name      = "eda-worker"
+    namespace = kubernetes_namespace.eda.metadata[0].name
+    annotations = {
+      "eks.amazonaws.com/role-arn" = module.app_resources.worker_role_arn
+    }
+  }
+}
+
+resource "kubernetes_config_map" "app_config" {
+  metadata {
+    name      = "eda-app-config"
+    namespace = kubernetes_namespace.eda.metadata[0].name
+  }
+
+  data = {
+    QUEUE_URL  = module.app_resources.jobs_queue_url
+    BUCKET     = module.app_resources.bucket_name
+    AWS_REGION = var.aws_region
+    # Host only, no scheme or trailing slash — it lands in nginx's
+    # proxy_pass and Host header in the web pod.
+    LAMBDA_ORIGIN = trimsuffix(trimprefix(module.app_resources.lambda_function_url, "https://"), "/")
+  }
 }

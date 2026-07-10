@@ -1,23 +1,101 @@
-# App CI: build -> Trivy scan -> push to ECR (immutable git-SHA tag) ->
-# bump the image tag in gitops/manifests so Argo CD syncs the new version.
-# TODO: matrix over web + worker; set ECR registry; add the manifest-bump commit.
+# App CI: build -> Trivy scan -> push to ECR (immutable git-SHA tag) -> pin
+# the new tag in gitops/manifests/kustomization.yaml and commit, which is
+# what Argo CD deploys. AWS auth is OIDC federation to the eda-gha role
+# (app-resources module) — the role ARN lives in the AWS_ROLE_ARN repository
+# variable (set it with `make ci-var` after apply), never in this file.
+#
+# workflow_dispatch exists for the bootstrap run: first bring-up needs images
+# before any app/ change has happened.
 name: app
 on:
-  push: { branches: [main], paths: ["app/**"] }
+  push:
+    branches: [main]
+    paths: ["app/**", ".github/workflows/app.yml"]
+  workflow_dispatch: {}
+
 permissions:
-  id-token: write
-  contents: write   # to commit the image-tag bump
+  id-token: write # OIDC token for the AWS role assumption
+  contents: write # the image-tag bump commit
+
+# One pipeline at a time: two bump commits racing each other would just
+# rebase-loop for nothing.
+concurrency:
+  group: app-ci
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [web, worker]
     steps:
       - uses: actions/checkout@v4
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: TODO-arn:aws:iam::ACCOUNT:role/eda-gha
-          aws-region: us-east-1
-      - uses: aws-actions/amazon-ecr-login@v2
-      # - docker build -t $ECR/eda-web:${{ github.sha }} app/web
-      # - Trivy scan (fail on HIGH/CRITICAL)
-      # - docker push  (immutable tag = git SHA, never :latest)
-      # - sed the new tag into gitops/manifests/*-deployment.yaml and commit
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build image
+        run: >
+          docker build
+          -t ${{ steps.ecr.outputs.registry }}/eda-${{ matrix.component }}:${{ github.sha }}
+          app/${{ matrix.component }}
+
+      - name: Trivy scan — gate on HIGH/CRITICAL with a fix available
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/eda-${{ matrix.component }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Push (skip if this SHA already exists — tags are immutable)
+        run: |
+          if aws ecr describe-images --repository-name "eda-${{ matrix.component }}" \
+               --image-ids imageTag="${{ github.sha }}" >/dev/null 2>&1; then
+            echo "tag ${{ github.sha }} already in ECR (re-run?) — not pushing"
+          else
+            docker push "${{ steps.ecr.outputs.registry }}/eda-${{ matrix.component }}:${{ github.sha }}"
+          fi
+
+  # Separate job, after BOTH images exist: one commit pins both tags, so Argo
+  # CD never sees a half-updated set of manifests.
+  bump-manifests:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Pin images to this SHA
+        run: |
+          # kustomize ships on GitHub's ubuntu runners; guard anyway
+          command -v kustomize >/dev/null || go install sigs.k8s.io/kustomize/kustomize/v5@latest
+          REGISTRY="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${AWS_REGION}.amazonaws.com"
+          cd gitops/manifests
+          kustomize edit set image \
+            "eda-web=${REGISTRY}/eda-web:${GITHUB_SHA}" \
+            "eda-worker=${REGISTRY}/eda-worker:${GITHUB_SHA}"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gitops/manifests/kustomization.yaml
+          git diff --cached --quiet && { echo "nothing to bump"; exit 0; }
+          git commit -m "ci: deploy app @ ${GITHUB_SHA::7}"
+          # paths-filter on app/** means this gitops/ commit can't retrigger us
+          git pull --rebase origin main
+          git push origin main

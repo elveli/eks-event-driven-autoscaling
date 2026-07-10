@@ -1,0 +1,19 @@
+# Argo CD renders this directory with kustomize. The Deployments reference
+# bare image names (eda-web, eda-worker); CI pins them to the ECR registry +
+# immutable git-SHA tag with `kustomize edit set image`, which appends an
+# `images:` block here and commits it — that commit is what Argo CD deploys.
+# Until the app workflow has run once, no images block exists and the pods
+# can't pull — run CI before applying gitops/apps/eda-app.yaml.
+#
+# Not listed here (Terraform-owned, they carry AWS-specific values): the eda
+# namespace, the eda-worker ServiceAccount, the eda-app-config ConfigMap.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - rbac.yaml
+  - web-deployment.yaml
+  - web-service.yaml
+  - web-hpa.yaml
+  - worker-deployment.yaml
+  - worker-scaledobject.yaml
+  - ingress.yaml

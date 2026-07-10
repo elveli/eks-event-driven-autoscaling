@@ -1,26 +1,73 @@
-# Terraform CI. Auth to AWS via OIDC (no stored keys). Plan on PR, apply on main.
-# TODO: set role-to-assume ARN, working-directory, and a plan-comment step.
+# Terraform CI: fmt/validate/plan with OIDC auth (no stored keys), plan
+# posted to the PR. There is deliberately NO apply step: the eda-gha role has
+# read-only AWS access plus state-lock rights, and applies stay manual —
+# tearing the stack up/down by hand is part of the demo (CLAUDE.md).
 name: infra
 on:
   pull_request: { paths: ["infra/**"] }
   push: { branches: [main], paths: ["infra/**"] }
+
 permissions:
-  id-token: write   # required for OIDC
+  id-token: write # OIDC token for the AWS role assumption
   contents: read
-  pull-requests: write
+  pull-requests: write # the plan comment
+
+env:
+  TF_IN_AUTOMATION: "true"
+
 jobs:
   terraform:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: infra/environments/dev } }
     steps:
       - uses: actions/checkout@v4
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: TODO-arn:aws:iam::ACCOUNT:role/eda-gha
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-east-1
+
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.7"
+
       - run: terraform init
       - run: terraform fmt -check -recursive
       - run: terraform validate
-      - run: terraform plan -no-color
-      # TODO: gate `terraform apply` on push-to-main only.
+
+      - id: plan
+        run: terraform plan -no-color -input=false
+        continue-on-error: true # so the failure lands in the PR comment, not a bare red X
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PLAN: "${{ steps.plan.outputs.stdout }}\n${{ steps.plan.outputs.stderr }}"
+        with:
+          script: |
+            const outcome = "${{ steps.plan.outcome }}";
+            const plan = process.env.PLAN.length > 60000
+              ? process.env.PLAN.slice(0, 60000) + "\n… (truncated — see the workflow log)"
+              : process.env.PLAN;
+            const body = [
+              `### Terraform plan — ${outcome === "success" ? "✅ clean" : "❌ errored"}`,
+              "<details><summary>Show plan</summary>",
+              "",
+              "```terraform",
+              plan,
+              "```",
+              "</details>",
+              "",
+              "_Applies are manual by design; this role can't write AWS._",
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail the job if the plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1

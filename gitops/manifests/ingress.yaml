@@ -1,18 +1,24 @@
-# ALB Ingress via AWS Load Balancer Controller.
-# TODO: annotations for internet-facing ALB, target-type ip, health check path.
+# ALB Ingress via the AWS Load Balancer Controller. Internet-facing, IP
+# targets (straight to pod IPs), health-checking nginx's /healthz. Public
+# subnets are discovered via their kubernetes.io/role/elb tag (network
+# module). `make url` prints the resulting hostname.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: eda
   namespace: eda
   annotations:
-    kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
 spec:
+  ingressClassName: alb
   rules:
     - http:
         paths:
           - path: /
             pathType: Prefix
-            backend: { service: { name: eda-web, port: { number: 80 } } }
+            backend:
+              service:
+                name: eda-web
+                port: { number: 80 }

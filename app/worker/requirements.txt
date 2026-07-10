@@ -1,1 +1,2 @@
-boto3
+# Pinned minor (CLAUDE.md: pin versions); patch releases float for fixes.
+boto3~=1.35.0

@@ -11,8 +11,8 @@ the quick-start.
 ## Stack
 
 Terraform · EKS · Karpenter (nodes) · KEDA scale-to-zero + one HPA (pods) ·
-IRSA (no static keys) · AWS Load Balancer Controller (ALB) · SQS/SNS · Lambda ·
-Argo CD (GitOps) · GitHub Actions + OIDC + Trivy (CI/CD).
+IRSA (no static keys) · AWS Load Balancer Controller (ALB) · SQS + DLQ ·
+Lambda · Argo CD (GitOps) · GitHub Actions + OIDC + Trivy (CI/CD).
 
 ## Architecture
 
@@ -104,12 +104,14 @@ sequenceDiagram
     participant Karpenter
     participant EC2 as EC2 (spot nodes)
 
-    User->>Web: Submit batch
-    Web->>Lambda: Request presigned URL
-    Lambda->>S3: Issue presigned URL
-    Lambda-->>Web: Return URL
-    Web->>S3: Upload batch (direct, presigned)
-    S3->>SQS: Enqueue one job message per item
+    User->>Web: Submit batch (N jobs × S seconds)
+    opt payload attached
+        Web->>Lambda: POST /api/presign
+        Lambda-->>Web: presigned PUT URL
+        Web->>S3: Upload payload (direct, presigned)
+    end
+    Web->>Lambda: POST /api/submit
+    Lambda->>SQS: Enqueue N job messages
     loop every poll interval
         KEDA->>SQS: Check queue depth
     end
@@ -118,7 +120,7 @@ sequenceDiagram
     Karpenter->>EC2: Launch spot node(s)
     Worker->>SQS: Consume + process job
     Worker->>S3: Write result
-    Web->>SQS: Poll depth for dashboard
+    Web->>Lambda: GET /api/stats (queue depth)
     Web->>User: Live queue depth / pod count / node count
     Note over SQS,Worker: Queue drains as jobs complete
     KEDA->>Worker: Scale N -> 0
@@ -142,10 +144,11 @@ flowchart LR
 
 ```
 .
-├── .github/workflows/          infra.yml (plan/apply) + app.yml (build/scan/push)
+├── .github/workflows/          infra.yml (fmt/validate/plan) + app.yml (build/scan/push/bump)
+├── Makefile                    wrappers for every command below (`make help`)
 ├── app/
 │   ├── lambda/                 request validator / presigned-URL issuer
-│   ├── web/                    nginx + static dashboard
+│   ├── web/                    nginx + dashboard + cluster-stats sidecar
 │   └── worker/                 job processor, scaled by KEDA on SQS depth
 ├── gitops/
 │   ├── apps/                   Argo CD Application manifests
@@ -174,53 +177,66 @@ goes in it.
 | 3 | Cluster (EKS, OIDC/IRSA, Karpenter) | ✅ applied |
 | 4 | Platform (LB Controller, KEDA, Argo CD) | 🧩 code complete, plans clean — awaiting apply |
 | 5 | App resources (SQS, S3, Lambda, ECR, app IRSA, CI OIDC) | 🧩 code complete, plans clean — awaiting apply |
-| 6 | App + GitOps (worker, dashboard, ScaledObject) | ⏳ not started |
+| 6 | App + GitOps (worker, dashboard, ScaledObject, CI) | 🧩 code complete — awaiting apply + first CI run |
 
-Continuing the build with Claude Code: open this folder, confirm it has read
-`CLAUDE.md`, and ask it to implement the next phase's module per its TODOs and
-README — fmt/validate/plan only, you apply. See `CLAUDE.md` > Build phases for
-the full dependency order.
+All six phases are code complete. What remains is operational: apply, run CI
+once to populate ECR, hand the manifests to Argo CD (the bring-up runbook
+below), and verify the definition of done in `CLAUDE.md`.
 
 ## Operating the dev stack
 
-Everything in `infra/environments/dev` (currently: network + cluster) is
-managed as one unit via the wrapper script, scoped to that directory only —
-it never touches `infra/bootstrap`, so the state bucket and lock table stay up
-between sessions:
+Every command below has a `make` wrapper (run `make help` for the menu; each
+target is also runnable by hand). The lifecycle targets go through
+`infra/environments/dev/manage-aws-dev-stack.sh`, which is scoped to that
+directory only — it never touches `infra/bootstrap`, so the state bucket and
+lock table stay up between sessions.
+
+### Bring-up runbook (clean AWS → running demo)
 
 ```sh
-cd infra/environments/dev
-./manage-aws-dev-stack.sh plan      # review changes
-./manage-aws-dev-stack.sh apply     # bring the stack up
-./manage-aws-dev-stack.sh destroy   # tear it down (asks for confirmation)
+make apply       # 1. terraform: VPC + EKS + Karpenter + platform + app resources (~20 min)
+make kubeconfig  # 2. point kubectl at the cluster
+make ci-var      # 3. give GitHub Actions the CI role ARN (repo variable AWS_ROLE_ARN)
+make ci-run      # 4. build + Trivy-scan + push images, pin tags in gitops/ (watches the run)
+make gitops      # 5. hand the app to Argo CD
+make url         # 6. the dashboard's ALB address (takes ~2 min to provision)
 ```
 
-### After applying: connecting to the cluster
+Order matters at two points: CI needs the `eda-gha` role and ECR repos (step
+1) plus the `AWS_ROLE_ARN` variable (step 3) before it can push; Argo CD
+(step 5) deploys whatever image tags CI pinned in
+`gitops/manifests/kustomization.yaml` (step 4), so until CI has run once
+there is nothing deployable.
 
-```sh
-aws eks update-kubeconfig --name eda-dev --region us-east-1
-kubectl get nodes                 # the 2-node system group
-kubectl get pods -n karpenter      # Karpenter controller running?
-kubectl get nodepool,ec2nodeclass  # the default NodePool/EC2NodeClass
-```
-
-If `kubectl get pods -n karpenter` doesn't show a `Running` pod, or
-`nodepool`/`ec2nodeclass` come back empty, the Helm release or manifests
-likely hit the first-apply chicken-and-egg case described in
+If the first `apply` errors reaching the cluster (Karpenter Helm release /
+NodePool manifests), that's the known first-apply chicken-and-egg case in
 `infra/modules/cluster/README.md` — re-run `apply` once.
 
-There's no workload to actually trigger node scaling yet — Karpenter only
-acts on unschedulable pods, and the worker Deployment + KEDA ScaledObject
-don't exist until Phase 6. Once those land, the end-to-end usage flow
-(submit a batch → watch pods and nodes scale → drain back to zero) will be
-documented here.
+### Driving the demo
+
+Open the dashboard (`make url`) and submit a batch — or from the terminal:
+
+```sh
+make submit N=100 DUR=20   # enqueue 100 jobs of ~20s each via the Lambda
+make watch                 # queue depth, worker pods, nodes — live, every 2s
+```
+
+What you should see: queue depth jumps to 100 → KEDA scales the worker
+0→20 (one pod per 5 queued jobs) → pods exceed spare capacity → Karpenter
+launches spot node(s) → the queue drains → pods scale back to 0 → Karpenter
+consolidates the empty nodes away. The dashboard shows all of it; so does
+`make watch`.
+
+More pokes: `make scaling` (ScaledObject + HPA side by side), `make results`
+(worker output in S3), `make dlq` (failed jobs), `make logs-worker`,
+`make argocd` (the Argo CD UI), `make irsa` (the cluster's AWS-access wiring).
 
 ## Cost discipline
 
-Running 24/7 is ~$130–210/mo. Use `manage-aws-dev-stack.sh apply`/`destroy` as
-your on/off switch — tear down the cluster, NAT, and nodes between sessions;
-keep only the bootstrap state bucket. Re-applying from code is part of the
-demo (proves reproducibility).
+Running 24/7 is ~$130–210/mo. Use `make apply` / `make destroy` as your on/off
+switch — tear down the cluster, NAT, and nodes between sessions; keep only the
+bootstrap state bucket. Re-applying from code is part of the demo (proves
+reproducibility). `make inventory` should list nothing after a destroy.
 
 ## Guardrails already set
 

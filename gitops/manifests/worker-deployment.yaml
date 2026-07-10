@@ -1,20 +1,45 @@
-# Worker Deployment. ServiceAccount is IRSA-annotated with the worker role
-# (from app-resources module output). KEDA scales this 0..N.
-# TODO: fill image (ECR worker URL @ git-SHA tag — NEVER :latest), env
-#       (QUEUE_URL, BUCKET), resources, and the SA annotation
-#       eks.amazonaws.com/role-arn: <worker_role_arn>.
+# Worker Deployment — the thing KEDA scales 0..N.
+#
+# Not in this file, by design:
+#   - replicas: KEDA owns it. A value here would make Argo CD's selfHeal
+#     revert every scale event.
+#   - image registry/tag: CI pins it in kustomization.yaml via
+#     `kustomize edit set image` (immutable git-SHA tags, never :latest).
+#   - the eda-worker ServiceAccount: Terraform creates it (environments/dev)
+#     because its IRSA annotation carries an account-specific role ARN.
+#   - AWS config: QUEUE_URL/BUCKET/AWS_REGION come from the Terraform-managed
+#     eda-app-config ConfigMap for the same reason.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: eda-worker
   namespace: eda
 spec:
-  replicas: 0          # KEDA owns this; start at zero
-  selector: { matchLabels: { app: eda-worker } }
+  selector:
+    matchLabels: { app: eda-worker }
   template:
-    metadata: { labels: { app: eda-worker } }
+    metadata:
+      labels: { app: eda-worker }
     spec:
       serviceAccountName: eda-worker
+      # Pin workers to Karpenter capacity so every burst exercises node
+      # autoscaling (and draining to zero empties those nodes completely,
+      # letting consolidation remove them — visible on the dashboard).
+      nodeSelector:
+        karpenter.sh/nodepool: default
+      # Longer than the 110s max job: SIGTERM lets the current job finish
+      # (worker.py handles it) instead of redelivering it after the
+      # visibility timeout.
+      terminationGracePeriodSeconds: 120
       containers:
         - name: worker
-          image: TODO-ecr-worker-url:TODO-sha
+          image: eda-worker
+          envFrom:
+            - configMapRef: { name: eda-app-config }
+          resources:
+            # Requests are what drive Karpenter: ~4 workers per vCPU means a
+            # 50-job burst asks for ~2.5 vCPU of new capacity. CPU limits are
+            # omitted on purpose — CPU is compressible, requests already give
+            # CFS fair-share protection, and a hard cap only adds throttling.
+            requests: { cpu: 250m, memory: 128Mi }
+            limits: { memory: 256Mi }

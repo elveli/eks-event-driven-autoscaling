@@ -1,4 +1,10 @@
-# TODO: surface alb_dns_name once the app Ingress exists (phase 6).
+# Note: the ALB's DNS name is not a Terraform output — the Load Balancer
+# Controller creates the ALB from the Ingress at runtime. Use `make url`
+# (reads the Ingress status via kubectl) to get it.
+
+output "aws_region" {
+  value = var.aws_region
+}
 
 output "vpc_id" {
   value = module.network.vpc_id

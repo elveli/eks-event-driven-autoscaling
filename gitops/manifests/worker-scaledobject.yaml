@@ -1,6 +1,11 @@
-# KEDA ScaledObject — the heart of the demo. Scales the worker on SQS depth,
-# all the way to zero.
-# TODO: set queueURL, region, and tune queueLength (messages per pod).
+# KEDA ScaledObject — the heart of the demo: worker replicas follow SQS
+# queue depth, all the way down to zero.
+#
+# queueURLFromEnv: KEDA reads the queue URL from the target container's env
+# (QUEUE_URL, via the Terraform-managed ConfigMap) — keeps the account-
+# specific URL out of git. identityOwner operator: depth is polled with the
+# KEDA operator's own IRSA role (pre-scoped to eda-dev-* queues in the
+# platform module), not the workload's.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -11,10 +16,17 @@ spec:
     name: eda-worker
   minReplicaCount: 0
   maxReplicaCount: 50
+  pollingInterval: 10 # default 30s; snappier 0->N for the demo
+  cooldownPeriod: 60 # default 300s; N->0 within a minute of the queue draining
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 60 # default 300s; visible scale-down between batches
   triggers:
     - type: aws-sqs-queue
       metadata:
-        queueURL: TODO-jobs-queue-url
-        queueLength: "5"
+        queueURLFromEnv: QUEUE_URL
+        queueLength: "5" # target messages per replica
         awsRegion: us-east-1
-        identityOwner: operator   # use KEDA operator's IRSA role
+        identityOwner: operator

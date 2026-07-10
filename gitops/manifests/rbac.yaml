@@ -1,0 +1,55 @@
+# Identity + read-only RBAC for the dashboard's stats sidecar: list pods in
+# the eda namespace (worker count) and nodes cluster-wide (node count).
+# This SA lives in git — unlike eda-worker's — because it carries no AWS
+# annotation; it's pure Kubernetes identity.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eda-web
+  namespace: eda
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eda-web-pod-reader
+  namespace: eda
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eda-web-pod-reader
+  namespace: eda
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eda-web-pod-reader
+subjects:
+  - kind: ServiceAccount
+    name: eda-web
+    namespace: eda
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eda-web-node-reader
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eda-web-node-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eda-web-node-reader
+subjects:
+  - kind: ServiceAccount
+    name: eda-web
+    namespace: eda

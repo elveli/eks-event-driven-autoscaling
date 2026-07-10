@@ -1,5 +1,531 @@
 <!doctype html>
-<!-- TODO: dashboard UI. Poll /api/stats; show queue depth, pod count, node
-     count; a "Submit batch" button that POSTs to /api/submit. -->
-<html><head><meta charset="utf-8"><title>BurstLab</title></head>
-<body><h1>BurstLab</h1><p>Dashboard placeholder.</p></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>eda — event-driven autoscaling</title>
+<style>
+  :root {
+    --plane: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --good: #0ca30c;
+    --bad: #d03b3b;
+    --s-queued: #2a78d6;
+    --s-inflight: #1baf7a;
+    --s-pods: #eda100;
+    --s-nodes: #008300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --plane: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --bad: #e66767;
+      --s-queued: #3987e5;
+      --s-inflight: #199e70;
+      --s-pods: #c98500;
+      --s-nodes: #008300;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--plane);
+    color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 48px; }
+
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 4px 0 16px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  #status { margin-left: auto; font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
+  #status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  #status.ok .dot { background: var(--good); }
+  #status.err .dot { background: var(--bad); }
+  #status.err { color: var(--bad); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+
+  /* Submit panel */
+  #submit-card { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+  #submit-card .field { display: flex; flex-direction: column; gap: 4px; }
+  #submit-card label { font-size: 12px; color: var(--ink-2); }
+  #submit-card input[type="number"] {
+    width: 96px; padding: 6px 8px; font: inherit; color: var(--ink);
+    background: var(--plane); border: 1px solid var(--baseline); border-radius: 6px;
+  }
+  button {
+    font: inherit; font-weight: 600; padding: 7px 14px; border-radius: 6px;
+    border: 1px solid var(--baseline); background: var(--surface); color: var(--ink); cursor: pointer;
+  }
+  button.primary { background: var(--s-queued); border-color: var(--s-queued); color: #fff; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #feedback { font-size: 13px; color: var(--ink-2); min-height: 1.4em; flex-basis: 100%; }
+  #feedback.err { color: var(--bad); }
+  #payload-note { font-size: 12px; color: var(--muted); }
+  #payload-note button { font-size: 11px; font-weight: 400; padding: 1px 7px; margin-left: 4px; }
+
+  /* Stat tiles */
+  #tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile .label { font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
+  .tile .key { width: 12px; height: 3px; border-radius: 2px; flex: none; }
+  .tile .value { font-size: 30px; font-weight: 600; margin-top: 2px; }
+  .tile .subtext { font-size: 12px; color: var(--muted); min-height: 1.3em; }
+
+  /* Charts */
+  #charts { display: grid; gap: 12px; }
+  #charts .half { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .chart-card h2 { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+  .legend .item { display: flex; align-items: center; gap: 5px; }
+  .legend .key { width: 12px; height: 3px; border-radius: 2px; }
+  .chart-wrap { position: relative; }
+  .chart-wrap svg { display: block; width: 100%; height: 170px; }
+  .chart-wrap svg:focus { outline: 2px solid var(--s-queued); outline-offset: 2px; }
+  .chart-wrap.stale svg { opacity: 0.55; }
+  .placeholder { color: var(--muted); font-size: 12px; }
+
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .baseline { stroke: var(--baseline); stroke-width: 1; }
+  .tick-label { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .series-wash { opacity: 0.1; stroke: none; }
+  .end-dot { stroke: var(--surface); stroke-width: 2; }
+  .crosshair { stroke: var(--baseline); stroke-width: 1; }
+  .stroke-queued { stroke: var(--s-queued); } .fill-queued { fill: var(--s-queued); }
+  .stroke-inflight { stroke: var(--s-inflight); } .fill-inflight { fill: var(--s-inflight); }
+  .stroke-pods { stroke: var(--s-pods); } .fill-pods { fill: var(--s-pods); }
+  .stroke-nodes { stroke: var(--s-nodes); } .fill-nodes { fill: var(--s-nodes); }
+
+  .tooltip {
+    position: absolute; top: 8px; pointer-events: none; display: none;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.12); min-width: 130px; z-index: 2;
+  }
+  .tooltip .when { color: var(--muted); font-variant-numeric: tabular-nums; margin-bottom: 4px; }
+  .tooltip .row { display: flex; align-items: center; gap: 6px; }
+  .tooltip .key { width: 10px; height: 3px; border-radius: 2px; flex: none; }
+  .tooltip .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tooltip .name { color: var(--ink-2); }
+
+  /* Table view */
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+  .tablewrap { overflow-x: auto; margin-top: 8px; }
+  table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; min-width: 420px; }
+  th, td { text-align: right; padding: 4px 12px; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-2); font-weight: 600; }
+
+  footer { margin-top: 20px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Event-driven autoscaling</h1>
+    <span class="sub">SQS &rarr; KEDA (pods 0&ndash;N) &rarr; Karpenter (nodes)</span>
+    <span id="status" role="status"><span class="dot"></span><span id="status-text">connecting&hellip;</span></span>
+  </header>
+
+  <form id="submit-card" class="card">
+    <div class="field">
+      <label for="count">Jobs</label>
+      <input id="count" type="number" min="1" max="500" value="50" required>
+    </div>
+    <div class="field">
+      <label for="duration">Seconds per job</label>
+      <input id="duration" type="number" min="1" max="110" value="15" required>
+    </div>
+    <div class="field">
+      <label for="file">Payload (optional)</label>
+      <input id="file" type="file">
+    </div>
+    <button type="submit" class="primary" id="submit-btn">Submit batch</button>
+    <span id="payload-note"></span>
+    <span id="feedback" role="status"></span>
+  </form>
+
+  <section id="tiles">
+    <div class="card tile" id="tile-queued">
+      <div class="label"><span class="key" style="background:var(--s-queued)"></span>Queued</div>
+      <div class="value">&ndash;</div><div class="subtext"></div>
+    </div>
+    <div class="card tile" id="tile-inflight">
+      <div class="label"><span class="key" style="background:var(--s-inflight)"></span>In flight</div>
+      <div class="value">&ndash;</div><div class="subtext"></div>
+    </div>
+    <div class="card tile" id="tile-pods">
+      <div class="label"><span class="key" style="background:var(--s-pods)"></span>Worker pods</div>
+      <div class="value">&ndash;</div><div class="subtext"></div>
+    </div>
+    <div class="card tile" id="tile-nodes">
+      <div class="label"><span class="key" style="background:var(--s-nodes)"></span>Nodes</div>
+      <div class="value">&ndash;</div><div class="subtext"></div>
+    </div>
+  </section>
+
+  <section id="charts">
+    <div class="card chart-card">
+      <h2>Queue depth</h2>
+      <div class="legend">
+        <span class="item"><span class="key" style="background:var(--s-queued)"></span>Queued</span>
+        <span class="item"><span class="key" style="background:var(--s-inflight)"></span>In flight</span>
+      </div>
+      <div class="chart-wrap" id="chart-queue"></div>
+    </div>
+    <div class="half">
+      <div class="card chart-card">
+        <h2>Worker pods</h2>
+        <div class="chart-wrap" id="chart-pods"></div>
+      </div>
+      <div class="card chart-card">
+        <h2>Nodes</h2>
+        <div class="chart-wrap" id="chart-nodes"></div>
+      </div>
+    </div>
+  </section>
+
+  <details id="table-view">
+    <summary>Data table (recent samples)</summary>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Time</th><th>Queued</th><th>In flight</th><th>Worker pods</th><th>Nodes</th></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </details>
+
+  <footer>Queue depth from SQS via the front-door Lambda &middot; pod/node counts from the Kubernetes API via the in-pod stats sidecar &middot; 2s refresh, 10&nbsp;min window.</footer>
+</main>
+
+<script>
+"use strict";
+
+const POLL_MS = 2000;
+const MAX_SAMPLES = 300; // 10 minutes at 2s
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+const samples = [];
+let attachedKey = null;
+
+const CHARTS = [
+  { wrap: "chart-queue", yFloor: 10, series: [
+      { key: "queued", label: "Queued", cls: "queued" },
+      { key: "inflight", label: "In flight", cls: "inflight" }] },
+  { wrap: "chart-pods", yFloor: 5, series: [{ key: "pods", label: "Worker pods", cls: "pods" }] },
+  { wrap: "chart-nodes", yFloor: 4, series: [{ key: "nodes", label: "Nodes", cls: "nodes" }] },
+];
+
+const $ = (id) => document.getElementById(id);
+
+function svgEl(name, attrs, cls) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (cls) el.setAttribute("class", cls);
+  return el;
+}
+
+function hhmmss(t) {
+  return new Date(t).toLocaleTimeString([], { hour12: false });
+}
+
+// Round up to 1/2/4/5/8 * 10^k so the four y-gridline steps land on integers.
+function niceMax(v) {
+  if (v <= 4) return 4;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 2, 4, 5, 8]) if (m * pow >= v) return m * pow;
+  return 10 * pow;
+}
+
+async function getJSON(path) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 1800);
+  try {
+    const res = await fetch(path, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`${path} -> HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---- polling ----
+
+async function tick() {
+  const [stats, cluster] = await Promise.allSettled([getJSON("/api/stats"), getJSON("/api/cluster")]);
+  const ok = stats.status === "fulfilled" || cluster.status === "fulfilled";
+  const s = stats.status === "fulfilled" ? stats.value : null;
+  const c = cluster.status === "fulfilled" ? cluster.value : null;
+
+  samples.push({
+    t: Date.now(),
+    queued: s ? s.queued : null,
+    inflight: s ? s.in_flight : null,
+    pods: c ? c.worker_pods.running : null,
+    pending: c ? c.worker_pods.pending : null,
+    nodes: c ? c.nodes.total : null,
+    karpenter: c ? c.nodes.karpenter : null,
+  });
+  if (samples.length > MAX_SAMPLES) samples.shift();
+
+  updateStatus(ok);
+  updateTiles(s, c);
+  for (const chart of CHARTS) renderChart(chart, !ok);
+  updateTable();
+  setTimeout(tick, POLL_MS);
+}
+
+function updateStatus(ok) {
+  const el = $("status");
+  el.className = ok ? "ok" : "err";
+  $("status-text").textContent = ok ? `live · ${hhmmss(Date.now())}` : "connection lost — retrying";
+}
+
+function setTile(id, value, subtext) {
+  const tile = $(id);
+  tile.querySelector(".value").textContent = value === null ? "–" : value.toLocaleString();
+  tile.querySelector(".subtext").textContent = subtext || "";
+}
+
+function updateTiles(s, c) {
+  setTile("tile-queued", s ? s.queued : null);
+  setTile("tile-inflight", s ? s.in_flight : null);
+  setTile("tile-pods", c ? c.worker_pods.running : null,
+    c && c.worker_pods.pending > 0 ? `+${c.worker_pods.pending} pending` : "");
+  setTile("tile-nodes", c ? c.nodes.total : null,
+    c ? `${c.nodes.karpenter} Karpenter · ${c.nodes.total - c.nodes.karpenter} system` : "");
+}
+
+// ---- charts ----
+
+const hoverIndex = {}; // wrap id -> sample index or null
+
+function renderChart(chart, stale) {
+  const wrap = $(chart.wrap);
+  wrap.classList.toggle("stale", !!stale);
+  if (samples.length < 2) {
+    wrap.replaceChildren(Object.assign(document.createElement("p"),
+      { className: "placeholder", textContent: "waiting for data…" }));
+    return;
+  }
+
+  const W = Math.max(wrap.clientWidth, 240);
+  const H = 170;
+  const m = { top: 8, right: 14, bottom: 20, left: 38 };
+  const pw = W - m.left - m.right;
+  const ph = H - m.top - m.bottom;
+
+  const t0 = samples[0].t;
+  const t1 = samples[samples.length - 1].t;
+  const x = (t) => m.left + ((t - t0) / Math.max(t1 - t0, 1)) * pw;
+
+  let vmax = chart.yFloor;
+  for (const smp of samples) for (const sr of chart.series) {
+    if (smp[sr.key] !== null && smp[sr.key] > vmax) vmax = smp[sr.key];
+  }
+  const ymax = niceMax(vmax);
+  const y = (v) => m.top + ph - (v / ymax) * ph;
+
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${W} ${H}`, width: W, height: H, tabindex: "0", role: "img",
+    "aria-label": chart.series.map((sr) => sr.label).join(", ") + " over the last 10 minutes",
+  });
+
+  // grid: 4 divisions, solid hairlines, labels on the left in clean numbers
+  for (let i = 0; i <= 4; i++) {
+    const v = (ymax / 4) * i;
+    const gy = y(v);
+    svg.append(svgEl("line", { x1: m.left, x2: W - m.right, y1: gy, y2: gy }, i === 0 ? "baseline" : "gridline"));
+    const lbl = svgEl("text", { x: m.left - 6, y: gy + 3, "text-anchor": "end" }, "tick-label");
+    lbl.textContent = v.toLocaleString();
+    svg.append(lbl);
+  }
+  // x labels: three time stamps
+  for (const f of [0, 0.5, 1]) {
+    const t = t0 + (t1 - t0) * f;
+    const anchor = f === 0 ? "start" : f === 1 ? "end" : "middle";
+    const lbl = svgEl("text", { x: x(t), y: H - 6, "text-anchor": anchor }, "tick-label");
+    lbl.textContent = hhmmss(t);
+    svg.append(lbl);
+  }
+
+  for (const sr of chart.series) {
+    // Split at nulls so a failed poll reads as a gap, not a made-up line.
+    const runs = [];
+    let run = [];
+    for (const smp of samples) {
+      if (smp[sr.key] === null) { if (run.length) { runs.push(run); run = []; } continue; }
+      run.push(smp);
+    }
+    if (run.length) runs.push(run);
+
+    for (const r of runs) {
+      const pts = r.map((smp) => `${x(smp.t).toFixed(1)},${y(smp[sr.key]).toFixed(1)}`);
+      if (r.length > 1) {
+        svg.append(svgEl("path", { d: "M" + pts.join("L") + `L${x(r[r.length - 1].t).toFixed(1)},${y(0)}L${x(r[0].t).toFixed(1)},${y(0)}Z` }, `series-wash fill-${sr.cls}`));
+        svg.append(svgEl("path", { d: "M" + pts.join("L") }, `series-line stroke-${sr.cls}`));
+      }
+    }
+    const last = samples[samples.length - 1];
+    if (last[sr.key] !== null) {
+      svg.append(svgEl("circle", { cx: x(last.t), cy: y(last[sr.key]), r: 4 }, `end-dot fill-${sr.cls}`));
+    }
+  }
+
+  // crosshair + tooltip (hover and keyboard get the same readout)
+  const idx = hoverIndex[chart.wrap];
+  const tooltip = document.createElement("div");
+  tooltip.className = "tooltip";
+  if (idx !== null && idx !== undefined && samples[idx]) {
+    const smp = samples[idx];
+    svg.append(svgEl("line", { x1: x(smp.t), x2: x(smp.t), y1: m.top, y2: m.top + ph }, "crosshair"));
+    const when = document.createElement("div");
+    when.className = "when";
+    when.textContent = hhmmss(smp.t);
+    tooltip.append(when);
+    for (const sr of chart.series) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const key = document.createElement("span");
+      key.className = "key";
+      key.style.background = `var(--s-${sr.cls})`;
+      const val = document.createElement("span");
+      val.className = "val";
+      val.textContent = smp[sr.key] === null ? "–" : smp[sr.key].toLocaleString();
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = sr.label;
+      row.append(key, val, name);
+      tooltip.append(row);
+    }
+    tooltip.style.display = "block";
+    const tx = x(smp.t);
+    if (tx > W / 2) { tooltip.style.right = `${W - tx + 10}px`; tooltip.style.left = "auto"; }
+    else { tooltip.style.left = `${tx + 10}px`; tooltip.style.right = "auto"; }
+  }
+
+  const nearestIndex = (clientX) => {
+    const rect = svg.getBoundingClientRect();
+    const t = t0 + ((clientX - rect.left - m.left) / pw) * (t1 - t0);
+    let best = 0;
+    for (let i = 1; i < samples.length; i++) {
+      if (Math.abs(samples[i].t - t) < Math.abs(samples[best].t - t)) best = i;
+    }
+    return best;
+  };
+  svg.addEventListener("pointermove", (ev) => { hoverIndex[chart.wrap] = nearestIndex(ev.clientX); renderChart(chart, stale); });
+  svg.addEventListener("pointerleave", () => { hoverIndex[chart.wrap] = null; renderChart(chart, stale); });
+  svg.addEventListener("keydown", (ev) => {
+    const cur = hoverIndex[chart.wrap] ?? samples.length - 1;
+    if (ev.key === "ArrowLeft") hoverIndex[chart.wrap] = Math.max(0, cur - 1);
+    else if (ev.key === "ArrowRight") hoverIndex[chart.wrap] = Math.min(samples.length - 1, cur + 1);
+    else if (ev.key === "Escape") hoverIndex[chart.wrap] = null;
+    else return;
+    ev.preventDefault();
+    renderChart(chart, stale);
+  });
+  svg.addEventListener("blur", () => { hoverIndex[chart.wrap] = null; renderChart(chart, stale); });
+
+  wrap.replaceChildren(svg, tooltip);
+}
+
+// ---- table view (the no-hover, screen-reader-clean twin of the charts) ----
+
+function updateTable() {
+  if (!$("table-view").open) return;
+  const body = $("table-body");
+  body.replaceChildren();
+  for (const smp of samples.slice(-30).reverse()) {
+    const tr = document.createElement("tr");
+    for (const v of [hhmmss(smp.t), smp.queued, smp.inflight, smp.pods, smp.nodes]) {
+      const td = document.createElement("td");
+      td.textContent = v === null ? "–" : typeof v === "number" ? v.toLocaleString() : v;
+      tr.append(td);
+    }
+    body.append(tr);
+  }
+}
+$("table-view").addEventListener("toggle", updateTable);
+
+// ---- submit & presign ----
+
+$("file").addEventListener("change", async () => {
+  const file = $("file").files[0];
+  const note = $("payload-note");
+  attachedKey = null;
+  if (!file) { note.textContent = ""; return; }
+  note.textContent = "uploading…";
+  try {
+    const res = await fetch("/api/presign", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ filename: file.name }),
+    });
+    if (!res.ok) throw new Error(`presign HTTP ${res.status}`);
+    const { url, key } = await res.json();
+    const put = await fetch(url, { method: "PUT", body: file });
+    if (!put.ok) throw new Error(`S3 PUT HTTP ${put.status}`);
+    attachedKey = key;
+    note.textContent = `payload attached: ${key}`;
+  } catch (err) {
+    note.textContent = `upload failed: ${err.message}`;
+    $("file").value = "";
+  }
+});
+
+$("submit-card").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const feedback = $("feedback");
+  const btn = $("submit-btn");
+  btn.disabled = true;
+  feedback.className = "";
+  feedback.textContent = "submitting…";
+  try {
+    const body = {
+      count: Number($("count").value),
+      duration_s: Number($("duration").value),
+    };
+    if (attachedKey) body.s3_key = attachedKey;
+    const res = await fetch("/api/submit", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    feedback.textContent = `enqueued ${data.enqueued} jobs (batch ${data.batch_id}) — watch the pods follow the queue`;
+  } catch (err) {
+    feedback.className = "err";
+    feedback.textContent = `submit failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { for (const chart of CHARTS) renderChart(chart, false); }, 150);
+});
+
+tick();
+</script>
+</body>
+</html>

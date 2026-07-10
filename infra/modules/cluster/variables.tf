@@ -5,11 +5,6 @@ variable "name_prefix" {
   description = "Short resource prefix, e.g. eda-dev. Used as the EKS cluster name."
 }
 
-variable "vpc_id" {
-  type        = string
-  description = "VPC ID from the network module."
-}
-
 variable "subnet_ids" {
   type        = list(string)
   description = "Private subnet IDs from the network module. Hosts the control plane ENIs, the system node group, and Karpenter-launched nodes."

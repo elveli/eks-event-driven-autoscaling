@@ -1,0 +1,13 @@
+# ClusterIP Service the ALB Ingress routes to (target-type ip sends traffic
+# straight to the pod IPs behind it).
+apiVersion: v1
+kind: Service
+metadata:
+  name: eda-web
+  namespace: eda
+spec:
+  selector:
+    app: eda-web
+  ports:
+    - port: 80
+      targetPort: 80

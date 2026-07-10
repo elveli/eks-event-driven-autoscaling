@@ -1,5 +1,13 @@
-# Argo CD Application — points at gitops/manifests/ and keeps the cluster in
-# sync with Git. TODO: set repoURL to your repo, and enable automated sync.
+# Argo CD Application — points at gitops/manifests/ (a kustomization) and
+# keeps the cluster in sync with git: CI commits an image-tag bump, Argo CD
+# rolls it out; drift in the cluster is reverted (selfHeal) and resources
+# deleted from git are pruned.
+#
+# Apply this once, by hand, after the app CI workflow has pushed images:
+#   kubectl apply -f gitops/apps/eda-app.yaml   (or `make gitops`)
+# The eda namespace is NOT created here — Terraform owns it (along with the
+# worker ServiceAccount and app ConfigMap), so a sync into a missing
+# namespace failing loudly means `terraform apply` hasn't run yet.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -8,12 +16,13 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: TODO-https://github.com/you/eks-event-driven-autoscaling.git
+    repoURL: https://github.com/elveli/eks-event-driven-autoscaling.git
     targetRevision: main
     path: gitops/manifests
   destination:
     server: https://kubernetes.default.svc
     namespace: eda
   syncPolicy:
-    automated: { prune: true, selfHeal: true }
-    syncOptions: ["CreateNamespace=true"]
+    automated:
+      prune: true
+      selfHeal: true
