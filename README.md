@@ -4,6 +4,13 @@ An EKS showcase: an async job-processing pipeline whose autoscaling is the
 visible product. Submit a batch → jobs hit SQS → worker pods scale **0→N** via
 KEDA → Karpenter adds nodes when pods don't fit → a dashboard shows it live.
 
+**KEDA** is a Kubernetes autoscaler that scales pods on external event
+sources — here, SQS queue depth — instead of just CPU/memory, including down
+to **zero** pods when the queue is empty. **Karpenter** is the node
+autoscaler: instead of sizing fixed node groups, it provisions and removes
+EC2 capacity directly to fit whatever's actually unschedulable, then
+consolidates it away once it's idle.
+
 The full architecture, conventions, and build phases are documented in
 [`CLAUDE.md`](CLAUDE.md) — that file is the source of truth; this README is
 the quick-start.
@@ -278,6 +285,8 @@ parameterized target: `make submit` enqueues `N=50` jobs of `DUR=15` seconds.
 | `make scaling` | both autoscalers side by side: KEDA ScaledObject + plain HPA |
 | `make logs-worker` | follow all worker logs (one JSON line per job event) |
 | `make logs-lambda` | follow the front-door Lambda's logs |
+| `make logs-karpenter` | follow Karpenter's logs (node provisioning/consolidation decisions) |
+| `make logs-keda` | follow KEDA's logs (operator + admission webhook + metrics apiserver, prefixed) |
 | `make argocd` | Argo CD UI on localhost:8080 (prints the admin password) |
 | `make irsa` | service accounts annotated with IAM roles — the AWS-access wiring |
 | `make inventory` | leak check: `Project=eda` resources (cross-verified live, not just the tagging index) + controller-created orphans (after destroy: only the bootstrap pair) |

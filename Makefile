@@ -4,7 +4,7 @@ TF    := terraform -chdir=infra/environments/dev
 STACK := infra/environments/dev/manage-aws-dev-stack.sh
 
 .DEFAULT_GOAL := help
-.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results watch pods nodes nodegroups scaling logs-worker logs-lambda irsa inventory
+.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results watch pods nodes nodegroups scaling logs-worker logs-lambda logs-karpenter logs-keda irsa inventory
 
 help:        ## this menu
 	@grep -E '^[a-zA-Z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN { FS = ":.*?## " } { printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2 }'
@@ -126,6 +126,12 @@ logs-worker: ## follow all worker logs (one JSON line per job event)
 
 logs-lambda: ## follow the front-door Lambda's logs
 	aws logs tail "/aws/lambda/$$($(TF) output -raw cluster_name)-front-door" --follow --since 15m
+
+logs-karpenter: ## follow Karpenter's logs (node provisioning/consolidation decisions)
+	kubectl logs -n karpenter -l app.kubernetes.io/instance=karpenter -f --tail=20 --max-log-requests=10 --prefix
+
+logs-keda:   ## follow KEDA's logs (operator + admission webhook + metrics apiserver, prefixed)
+	kubectl logs -n keda -l app.kubernetes.io/instance=keda -f --tail=20 --max-log-requests=10 --prefix
 
 irsa:        ## service accounts annotated with IAM roles — the cluster's AWS-access wiring
 	@{ echo "NAMESPACE SERVICEACCOUNT IAM_ROLE"; \
