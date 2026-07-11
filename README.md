@@ -280,7 +280,7 @@ parameterized target: `make submit` enqueues `N=50` jobs of `DUR=15` seconds.
 | `make logs-lambda` | follow the front-door Lambda's logs |
 | `make argocd` | Argo CD UI on localhost:8080 (prints the admin password) |
 | `make irsa` | service accounts annotated with IAM roles — the AWS-access wiring |
-| `make inventory` | leak check: `Project=eda` resources + controller-created orphans (after destroy: only the bootstrap pair) |
+| `make inventory` | leak check: `Project=eda` resources (cross-verified live, not just the tagging index) + controller-created orphans (after destroy: only the bootstrap pair) |
 
 ## Cost discipline
 
