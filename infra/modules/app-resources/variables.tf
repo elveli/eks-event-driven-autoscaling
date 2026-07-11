@@ -16,6 +16,12 @@ variable "github_repo" {
   default     = "elveli/eks-event-driven-autoscaling"
 }
 
+variable "create_github_oidc_provider" {
+  type        = bool
+  description = "Whether to create the account-wide GitHub Actions OIDC provider (issuer token.actions.githubusercontent.com). AWS allows only one per account; if another project sharing this AWS account already created it, set this to false here so this module reuses it (check with: aws iam list-open-id-connect-providers). Whichever project creates it \"owns\" it for destroy purposes."
+  default     = true
+}
+
 variable "state_bucket_basename" {
   type        = string
   description = "Terraform state bucket name minus the account-id suffix (the full name is <basename>-<account_id>, as created by infra/bootstrap). The CI role gets read access to it for terraform plan."

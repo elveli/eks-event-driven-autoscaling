@@ -81,6 +81,13 @@ module "app_resources" {
   source            = "../../modules/app-resources"
   name_prefix       = local.name_prefix
   oidc_provider_arn = module.cluster.oidc_provider_arn
+
+  # This AWS account already has a token.actions.githubusercontent.com OIDC
+  # provider from another project (confirmed via
+  # aws iam get-open-id-connect-provider — ClientIDList already includes
+  # sts.amazonaws.com, so this repo's role trust works against it as-is).
+  # AWS allows only one per account; don't fight the other project for it.
+  create_github_oidc_provider = false
 }
 
 # ---- Phase 6: app identity/config contract ----

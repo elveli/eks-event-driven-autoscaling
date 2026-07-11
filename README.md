@@ -214,15 +214,15 @@ make apply       # 1. terraform: VPC + EKS + Karpenter + platform + app resource
 make kubeconfig  # 2. point kubectl at the cluster
 make ci-var      # 3. give GitHub Actions the CI role ARN (repo variable AWS_ROLE_ARN)
 make ci-run      # 4. build + Trivy-scan + push images, pin tags in gitops/ (watches the run)
-make gitops      # 5. hand the app to Argo CD
+make gitops      # 5. point Argo CD at gitops/manifests/ — one-time, it auto-syncs after this
 make url         # 6. the dashboard's ALB address (takes ~2 min to provision)
 ```
 
 Order matters at two points: CI needs the `eda-gha` role and ECR repos
 (step 1) plus the `AWS_ROLE_ARN` variable (step 3) before it can push;
-Argo CD (step 5) deploys whatever image tags CI pinned in
-`gitops/manifests/kustomization.yaml` (step 4), so until CI has run once
-there is nothing deployable.
+once Argo CD is pointed at the repo (step 5) it deploys whatever image tags
+CI pinned in `gitops/manifests/kustomization.yaml` (step 4), so until CI has
+run once there is nothing deployable.
 
 If the first `apply` errors reaching the cluster (Karpenter Helm release /
 NodePool manifests), that's the known first-apply chicken-and-egg case in
@@ -261,7 +261,7 @@ parameterized target: `make submit` enqueues `N=50` jobs of `DUR=15` seconds.
 | **CI / GitOps bootstrap** — once per bring-up, in this order | |
 | `make ci-var` | give GitHub Actions the CI role ARN (repo variable `AWS_ROLE_ARN`) |
 | `make ci-run` | build + Trivy-scan + push images, pin tags in gitops/ (watches the run) |
-| `make gitops` | hand the app over to Argo CD (applies the Application) |
+| `make gitops` | one-time: creates the Argo CD Application resource pointing at `gitops/manifests/`, so it starts auto-syncing from git |
 | **Driving the demo** | |
 | `make url` | the dashboard's ALB address (empty until the LB controller provisions it) |
 | `make submit N=100 DUR=20` | enqueue a batch straight at the Lambda |

@@ -155,7 +155,15 @@ resource "helm_release" "keda" {
     value = aws_iam_role.keda.arn
   }
 
-  depends_on = [aws_iam_role_policy.keda_sqs_read]
+  # The LB Controller's MutatingWebhookConfiguration intercepts EVERY Service
+  # object cluster-wide (KEDA's charts create several), not just ones it
+  # provisions ALBs for. Without this dependency, Terraform applies both
+  # helm_releases in parallel and KEDA's Service creation can hit the webhook
+  # before the controller's pods are up — "no endpoints available" — failing
+  # the release on a fresh cluster. helm_release's default wait=true makes
+  # this depends_on actually wait for ready pods, not just "helm install
+  # returned".
+  depends_on = [aws_iam_role_policy.keda_sqs_read, helm_release.lb_controller]
 }
 
 # ---- Argo CD ----
@@ -171,4 +179,8 @@ resource "helm_release" "argocd" {
   version          = var.argocd_version
   namespace        = var.argocd_namespace
   create_namespace = true
+
+  # Same LB Controller webhook race as keda above — argocd-server's Service
+  # is subject to the same cluster-wide mutating webhook.
+  depends_on = [helm_release.lb_controller]
 }

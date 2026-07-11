@@ -17,6 +17,12 @@ locals {
   # state bucket. Derived, not hardcoded (no account IDs in code).
   bucket_name       = "${var.name_prefix}-jobs-${data.aws_caller_identity.current.account_id}"
   state_bucket_name = "${var.state_bucket_basename}-${data.aws_caller_identity.current.account_id}"
+
+  # An IAM OIDC provider's ARN is fully deterministic from partition + account
+  # + issuer URL (no random suffix) — same derivation whether this module
+  # creates the resource or reuses one created by another project sharing
+  # the account (see var.create_github_oidc_provider).
+  github_oidc_arn = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
 }
 
 # ---- SQS: jobs queue + dead-letter queue ----
@@ -236,8 +242,17 @@ resource "aws_iam_role_policy" "worker" {
 # stored AWS keys in GitHub. thumbprint_list omitted for the same reason as
 # the cluster module's EKS provider: AWS derives trust from the provider's
 # own certificate chain.
-
+#
+# AWS allows only ONE IAM OIDC provider per issuer URL per account, and this
+# issuer (token.actions.githubusercontent.com) is GitHub's single global
+# token issuer — every GitHub-hosted repo's Actions workflows present the
+# same URL, so an AWS account that hosts more than one project's CI can only
+# have one such provider, created by whichever project applies first.
+# var.create_github_oidc_provider lets a later project reuse it instead of
+# hitting EntityAlreadyExists.
 resource "aws_iam_openid_connect_provider" "github" {
+  count = var.create_github_oidc_provider ? 1 : 0
+
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
 }
@@ -250,7 +265,7 @@ resource "aws_iam_role" "gha" {
     Statement = [{
       Effect    = "Allow"
       Action    = "sts:AssumeRoleWithWebIdentity"
-      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+      Principal = { Federated = local.github_oidc_arn }
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"

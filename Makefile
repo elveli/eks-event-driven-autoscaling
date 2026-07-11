@@ -33,7 +33,11 @@ ci-run:      ## build+scan+push images and pin their tags (the app workflow), th
 	@sleep 5
 	gh run watch "$$(gh run list --workflow=app --limit 1 --json databaseId --jq '.[0].databaseId')"
 
-gitops:      ## hand the app over to Argo CD (apply the Application, pull the bump commit)
+# One-time bootstrap: creates the Argo CD Application resource (the CRD that
+# tells Argo CD "watch gitops/manifests/ in this repo"). After this, Argo CD
+# polls git directly and auto-syncs on every push — you don't re-run this
+# for ordinary app changes, only if gitops/apps/eda-app.yaml itself changes.
+gitops:      ## one-time: point Argo CD at gitops/manifests/ so it starts auto-syncing from git
 	git pull --rebase
 	kubectl apply -f gitops/apps/eda-app.yaml
 
