@@ -31,9 +31,19 @@ the quick-start.
 
 ## Stack
 
-Terraform · EKS · Karpenter (nodes) · KEDA scale-to-zero + one HPA (pods) ·
-IRSA (no static keys) · AWS Load Balancer Controller (ALB) · SQS + DLQ ·
-Lambda · Argo CD (GitOps) · GitHub Actions + OIDC + Trivy (CI/CD).
+| Layer | Tool | Role |
+|---|---|---|
+| Provisioning | Terraform | Infra as code |
+| Cluster | EKS | Managed Kubernetes control plane |
+| Node autoscaling | Karpenter | Adds/removes EC2 capacity to fit unschedulable pods |
+| Pod autoscaling | KEDA | Scales workers on SQS queue depth, down to **zero** |
+| Pod autoscaling (contrast) | HPA | One plain CPU-based autoscaler, for contrast with KEDA |
+| Pod identity | IRSA | AWS access via IAM roles — no static keys anywhere |
+| Ingress | AWS Load Balancer Controller | Provisions the ALB from a Kubernetes Ingress |
+| Queue | SQS + DLQ | Job queue KEDA watches, plus a dead-letter queue for failures |
+| Front door | Lambda | Validates requests, issues S3 presigned URLs |
+| GitOps | Argo CD | Syncs manifests from git; prunes and self-heals drift |
+| CI/CD | GitHub Actions + OIDC + Trivy | Build → scan → push, no stored AWS keys |
 
 ## Architecture
 
