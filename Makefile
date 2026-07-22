@@ -4,7 +4,7 @@ TF    := terraform -chdir=infra/environments/dev
 STACK := infra/environments/dev/manage-aws-dev-stack.sh
 
 .DEFAULT_GOAL := help
-.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results watch pods nodes nodegroups scaling logs-worker logs-lambda logs-karpenter logs-keda irsa inventory
+.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results watch pods nodes nodegroups scaling logs-worker logs-lambda logs-karpenter logs-keda irsa healthchecks inventory
 
 help:        ## this menu
 	@grep -E '^[a-zA-Z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN { FS = ":.*?## " } { printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2 }'
@@ -139,6 +139,69 @@ irsa:        ## service accounts annotated with IAM roles — the cluster's AWS-
 	  | select(.metadata.annotations["eks.amazonaws.com/role-arn"]) \
 	  | .metadata.namespace + " " + .metadata.name + " " \
 	    + (.metadata.annotations["eks.amazonaws.com/role-arn"] | sub(".*role/"; ""))'; } | column -t
+
+# ---- health gate ----
+# Unlike the "poking at state" targets above (which just print what's there),
+# this is pass/fail: it checks Argo CD's own sync/health verdict, compares
+# each Deployment's spec.replicas (whatever the HPA/KEDA last decided, so a
+# scaled-to-zero worker is correctly "healthy") against readyReplicas, and
+# walks the ALB's actual target group instead of trusting the Ingress alone.
+# Exits 1 if anything's off — safe to use as a bring-up gate in a script.
+healthchecks: ## pass/fail gate: Argo CD sync/health, Deployment readiness, ALB target health
+	@FAIL=0; \
+	echo "── Argo CD Application (eda) ───────────────"; \
+	SYNC="$$(kubectl -n argocd get application eda -o jsonpath='{.status.sync.status}' 2>/dev/null)"; \
+	HEALTH="$$(kubectl -n argocd get application eda -o jsonpath='{.status.health.status}' 2>/dev/null)"; \
+	if [ "$$SYNC" = "Synced" ] && [ "$$HEALTH" = "Healthy" ]; then \
+	  echo "  OK    sync=$$SYNC health=$$HEALTH"; \
+	else \
+	  echo "  FAIL  sync=$${SYNC:-unreachable} health=$${HEALTH:-unreachable}"; FAIL=1; \
+	fi; \
+	echo ""; echo "── Deployments (eda namespace) ─────────────"; \
+	for D in eda-web eda-worker; do \
+	  DESIRED="$$(kubectl -n eda get deploy $$D -o jsonpath='{.spec.replicas}' 2>/dev/null)"; \
+	  READY="$$(kubectl -n eda get deploy $$D -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"; \
+	  READY="$${READY:-0}"; \
+	  if [ -z "$$DESIRED" ]; then \
+	    echo "  FAIL  $$D unreachable"; FAIL=1; \
+	  elif [ "$$READY" = "$$DESIRED" ]; then \
+	    echo "  OK    $$D ready=$$READY/$$DESIRED"; \
+	  else \
+	    echo "  FAIL  $$D ready=$$READY/$$DESIRED"; FAIL=1; \
+	  fi; \
+	done; \
+	echo ""; echo "── ALB target health ────────────────────────"; \
+	REGION="$$($(TF) output -raw aws_region 2>/dev/null)"; REGION="$${REGION:-us-east-1}"; \
+	HOST="$$(kubectl -n eda get ingress eda -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)"; \
+	if [ -z "$$HOST" ]; then \
+	  echo "  FAIL  ingress has no ALB hostname yet"; FAIL=1; \
+	else \
+	  ALB_ARN="$$(aws elbv2 describe-load-balancers --region "$$REGION" \
+	    --query "LoadBalancers[?DNSName=='$$HOST'].LoadBalancerArn" --output text)"; \
+	  if [ -z "$$ALB_ARN" ]; then \
+	    echo "  FAIL  no ALB found for $$HOST"; FAIL=1; \
+	  else \
+	    TG_ARN="$$(aws elbv2 describe-target-groups --region "$$REGION" --load-balancer-arn "$$ALB_ARN" \
+	      --query 'TargetGroups[0].TargetGroupArn' --output text)"; \
+	    if [ -z "$$TG_ARN" ] || [ "$$TG_ARN" = "None" ]; then \
+	      echo "  FAIL  no target group behind $$HOST"; FAIL=1; \
+	    else \
+	      HEALTH_OUT="$$(aws elbv2 describe-target-health --region "$$REGION" --target-group-arn "$$TG_ARN" \
+	        --query 'TargetHealthDescriptions[].[Target.Id,TargetHealth.State,TargetHealth.Reason]' --output text)"; \
+	      if [ -z "$$HEALTH_OUT" ]; then \
+	        echo "  FAIL  no registered targets behind $$HOST"; FAIL=1; \
+	      elif echo "$$HEALTH_OUT" | awk '{print $$2}' | grep -qv '^healthy$$'; then \
+	        echo "  FAIL  unhealthy target(s) behind $$HOST:"; \
+	        echo "$$HEALTH_OUT" | sed 's/^/    /'; \
+	        FAIL=1; \
+	      else \
+	        echo "  OK    all targets healthy ($$HOST)"; \
+	      fi; \
+	    fi; \
+	  fi; \
+	fi; \
+	echo ""; \
+	if [ "$$FAIL" = "1" ]; then echo "RESULT: unhealthy"; exit 1; else echo "RESULT: healthy"; fi
 
 # Region falls back to the variables.tf default because the primary use of
 # inventory is AFTER destroy — when the state has no outputs left to read

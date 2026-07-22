@@ -350,6 +350,8 @@ parameterized target: `make submit` enqueues `N=50` jobs of `DUR=15` seconds.
 | `make logs-keda` | follow KEDA's logs (operator + admission webhook + metrics apiserver, prefixed) |
 | `make argocd` | Argo CD UI on localhost:8080 (prints the admin password) |
 | `make irsa` | service accounts annotated with IAM roles — the AWS-access wiring |
+| **Health gate** — pass/fail, exits 1 on any failure | |
+| `make healthchecks` | Argo CD sync/health, Deployment readiness (spec vs ready replicas), ALB target-group health |
 | `make inventory` | leak check: `Project=eda` resources (cross-verified live, not just the tagging index) + controller-created orphans (after destroy: only the bootstrap pair) |
 
 ## Cost discipline
