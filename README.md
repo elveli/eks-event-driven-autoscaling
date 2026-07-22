@@ -19,6 +19,7 @@ the quick-start.
 
 - [Stack](#stack)
 - [Architecture](#architecture)
+- [Karpenter's role](#karpenters-role)
 - [Workflow](#workflow)
 - [Layout](#layout)
 - [Build status](#build-status)
@@ -114,6 +115,56 @@ flowchart TB
     GH --> Actions --> Trivy --> ECR
     Actions -. bumps tag, commits to gitops/ .-> ArgoCD
 ```
+
+## Karpenter's role
+
+Two node pools exist side by side, and they're not interchangeable:
+
+- **System node group** — a small, static, EKS-managed node group (2×
+  t3.medium). It exists only to run the platform's own pods: the Karpenter
+  controller itself, KEDA, the AWS Load Balancer Controller, Argo CD. No
+  worker or dashboard pod ever lands here.
+- **Karpenter-provisioned nodes** — dynamic EC2 capacity that exists only
+  while worker pods need it. Every worker pod runs here, nowhere else.
+
+Karpenter's whole job is managing that second pool, on a loop:
+
+1. **Watches for unschedulable pods**, not queue depth or any metric. When
+   KEDA scales workers 0→N faster than the system node group has room, those
+   pods go `Pending`; Karpenter reacts to that directly.
+2. **Picks and launches instances via a NodePool + EC2NodeClass** (CRDs
+   applied in `infra/modules/cluster/main.tf`, `kubectl_manifest.karpenter_node_pool`)
+   — spot or on-demand, `c`/`m`/`r` families, generation > 2, amd64/linux
+   only. It picks the cheapest shape that fits the pending pods; there's no
+   fixed instance type to configure.
+3. **Caps total capacity at 100 vCPU** (`NodePool.spec.limits.cpu`) — a
+   runaway-cost guardrail so one oversized batch submission can't blow the
+   demo budget.
+4. **Consolidates aggressively**: `consolidationPolicy: WhenEmptyOrUnderutilized`,
+   `consolidateAfter: 1m`. Once the queue drains and pods scale back to 0,
+   Karpenter terminates the now-idle nodes about a minute later — this is the
+   "nodes scale back down" half of the demo.
+5. **Force-recycles nodes every 30 days** (`expireAfter: 720h`) even if
+   they're busy, so long-lived nodes don't drift onto a stale AMI. The node
+   class resolves AMIs via the `al2023@latest` alias — fine for short-lived
+   demo nodes, but Karpenter's own docs call this out as unsuitable for
+   production (an AMI release silently replaces running nodes).
+6. **Drains gracefully on spot interruption.** An SQS queue + EventBridge
+   rules feed AWS's spot-interruption / rebalance / instance-state-change /
+   health-event notifications to Karpenter, so it cordons and evicts before
+   an instance is actually reclaimed, instead of the pod just vanishing.
+
+IAM-wise Karpenter needs two separate roles: an **IRSA role for the
+controller** (EC2/IAM/EKS API calls) and a plain **EC2 instance role for the
+nodes it launches** (`KarpenterNodeRole-*`). The node role isn't part of an
+EKS-managed node group, so it needs its own explicit EKS access entry — see
+`infra/modules/cluster/README.md` for why that has to be an `EC2_LINUX`
+entry, not `STANDARD`.
+
+One consequence worth knowing: the Karpenter controller runs on the system
+node group, not on capacity it manages itself — so anything that pauses the
+system node group (e.g. a future scale-to-zero kill switch) takes Karpenter
+down with it too.
 
 ## Workflow
 
