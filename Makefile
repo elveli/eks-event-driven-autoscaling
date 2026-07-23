@@ -150,10 +150,21 @@ irsa:        ## service accounts annotated with IAM roles — the cluster's AWS-
 
 # ---- health gate ----
 # Unlike the "poking at state" targets above (which just print what's there),
-# this is pass/fail: it checks Argo CD's own sync/health verdict, compares
-# each Deployment's spec.replicas (whatever the HPA/KEDA last decided, so a
-# scaled-to-zero worker is correctly "healthy") against readyReplicas, and
-# walks the ALB's actual target group instead of trusting the Ingress alone.
+# this is pass/fail, in three steps (note: don't put `#` comments inside the
+# recipe below — the macOS-shipped GNU Make 3.81 mis-parses `#` inside a
+# backslash-continued recipe and silently drops everything after it):
+#   1. Argo CD Application (eda): reads the Application CR's own
+#      .status.sync.status / .status.health.status — Argo CD's own verdict on
+#      whether the live cluster matches git and is actually up, not a fresh
+#      check of our own.
+#   2. Deployments (eda-web, eda-worker): compares spec.replicas (whatever
+#      the HPA/KEDA currently wants — 0 for a scaled-to-zero worker) against
+#      status.readyReplicas, so "wanted N pods, not all Ready" fails without
+#      false-failing a legitimate scale-to-zero.
+#   3. ALB target health: the Ingress object alone only proves the ALB
+#      *exists*, not that pods behind it are passing health checks — resolves
+#      the Ingress hostname to the real ALB and its target group via the AWS
+#      API, then reads each registered target's health directly.
 # Exits 1 if anything's off — safe to use as a bring-up gate in a script.
 healthchecks: ## pass/fail gate: Argo CD sync/health, Deployment readiness, ALB target health
 	@FAIL=0; \
