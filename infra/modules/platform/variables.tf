@@ -50,3 +50,15 @@ variable "argocd_namespace" {
   description = "Namespace Argo CD is installed into."
   default     = "argocd"
 }
+
+variable "metrics_server_version" {
+  type        = string
+  description = "metrics-server Helm chart version (pinned)."
+  default     = "3.13.1"
+}
+
+variable "metrics_server_namespace" {
+  type        = string
+  description = "Namespace metrics-server is installed into. kube-system matches AWS's documented EKS convention."
+  default     = "kube-system"
+}

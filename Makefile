@@ -4,7 +4,7 @@ TF    := terraform -chdir=infra/environments/dev
 STACK := infra/environments/dev/manage-aws-dev-stack.sh
 
 .DEFAULT_GOAL := help
-.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results watch pods nodes nodegroups scaling logs-worker logs-lambda logs-karpenter logs-keda irsa healthchecks inventory
+.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results watch pods nodes nodegroups top scaling apps logs-worker logs-lambda logs-karpenter logs-keda irsa healthchecks inventory
 
 help:        ## this menu
 	@grep -E '^[a-zA-Z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN { FS = ":.*?## " } { printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2 }'
@@ -118,8 +118,16 @@ nodegroups:  ## node capacity, both kinds: static system group + Karpenter pool/
 	@echo "Karpenter NodeClaims (one per launched node; empty = workers at zero):"
 	@kubectl get nodeclaims -o wide || echo "  (cluster unreachable)"
 
+top:         ## live CPU/memory usage — nodes and eda-namespace pods (needs metrics-server)
+	kubectl top nodes
+	@echo ""
+	kubectl top pods -n eda
+
 scaling:     ## both autoscalers side by side: KEDA ScaledObject + plain HPA
 	kubectl get scaledobject,hpa,deploy -n eda
+
+apps:        ## Argo CD Applications — sync/health status at a glance
+	kubectl get applications -n argocd
 
 logs-worker: ## follow all worker logs (one JSON line per job event)
 	kubectl logs -n eda -l app=eda-worker -f --tail=20 --max-log-requests=20

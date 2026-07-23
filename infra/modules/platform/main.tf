@@ -184,3 +184,24 @@ resource "helm_release" "argocd" {
   # is subject to the same cluster-wide mutating webhook.
   depends_on = [helm_release.lb_controller]
 }
+
+# ---- metrics-server ----
+# The standard Kubernetes resource-metrics pipeline (metrics.k8s.io) — not to
+# be confused with KEDA's own bundled "metrics server" component mentioned
+# above, which only serves KEDA's external/custom metrics (e.g. SQS depth).
+# This is what `kubectl top nodes/pods` reads, and what the plain
+# eda-web HPA (a CPU target) needs to work at all — without it the HPA has no
+# metrics source and just sits on "<unknown>". No AWS API calls, so no IRSA.
+
+resource "helm_release" "metrics_server" {
+  name             = "metrics-server"
+  repository       = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart            = "metrics-server"
+  version          = var.metrics_server_version
+  namespace        = var.metrics_server_namespace
+  create_namespace = false # kube-system already exists
+
+  # Same LB Controller webhook race as keda/argocd above — this chart's
+  # Service is subject to the same cluster-wide mutating webhook.
+  depends_on = [helm_release.lb_controller]
+}
