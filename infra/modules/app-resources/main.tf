@@ -176,6 +176,36 @@ resource "aws_lambda_function_url" "front_door" {
   }
 }
 
+# authorization_type = "NONE" above only skips SigV4 signing — Lambda still
+# requires an explicit resource policy granting invoke access, or every
+# caller (including the dashboard's own /api/ proxy) gets 403 Forbidden.
+# Two statements are required (AWS changed this for function URLs created
+# after Oct 2025, docs.aws.amazon.com/lambda/latest/dg/urls-auth.html):
+# lambda:InvokeFunctionUrl passes the function-URL auth check, but the
+# actual invocation also needs a separate lambda:InvokeFunction grant.
+resource "aws_lambda_permission" "front_door_public_url" {
+  statement_id           = "AllowPublicInvokeFunctionUrl"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.front_door.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}
+
+# AWS's own console/CLI scope this second grant to function-URL calls only
+# via an InvokedViaFunctionUrl condition (lambda:InvokeFunction otherwise
+# also works through the plain Invoke API). The Terraform argument for that,
+# invoked_via_function_url, only landed in AWS provider v6.28.0
+# (hashicorp/terraform-provider-aws#44858) — this repo is pinned to `~> 5.0`,
+# so the grant below is unconditional. Acceptable here: the function URL is
+# already intentionally public (see the auth-NONE comment above); revisit if
+# this module ever bumps to provider v6.
+resource "aws_lambda_permission" "front_door_public_invoke" {
+  statement_id  = "AllowPublicInvokeFunction"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.front_door.function_name
+  principal     = "*"
+}
+
 # ---- ECR: image repos ----
 # Not env-prefixed (unlike everything else): images are env-agnostic and
 # promoted by tag, so the repos are shared across envs by design.
