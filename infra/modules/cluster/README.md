@@ -31,10 +31,15 @@ app-resources modules need it to build IRSA roles.
   installed by the Karpenter Helm release in the same apply.
 - **First apply caveat:** the kubernetes/helm/kubectl providers (configured in
   `environments/dev/main.tf`) authenticate against this cluster's endpoint,
-  which doesn't exist yet on a from-scratch apply. If the Karpenter
-  `helm_release` or the NodePool/EC2NodeClass manifests fail on the very first
-  apply with a connection error, just re-run `terraform apply` — the cluster
-  will exist by then and the rest applies cleanly.
+  which doesn't exist yet on a from-scratch apply — and even once it exists,
+  the control plane can be briefly overloaded while the system node group
+  joins and the Karpenter chart deploys. Any resource that talks to the
+  cluster can hit a connection error on the very first apply: the Karpenter
+  `helm_release`, the NodePool/EC2NodeClass manifests, or ones further
+  downstream like the `eda` namespace and the platform module's Helm releases
+  (LB Controller, KEDA, Argo CD). Just re-run `terraform apply` — it's
+  idempotent, so anything already created is left alone and only the failed
+  resources retry once the cluster has settled.
 - **k8s_version default (1.34):** check the current EKS standard-support
   version list before applying — this rolls over every few months and an
   outdated pin risks landing on extended support (6x control-plane cost).

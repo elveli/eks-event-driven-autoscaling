@@ -292,9 +292,12 @@ once Argo CD is pointed at the repo (step 5) it deploys whatever image tags
 CI pinned in `gitops/manifests/kustomization.yaml` (step 4), so until CI has
 run once there is nothing deployable.
 
-If the first `apply` errors reaching the cluster (Karpenter Helm release /
-NodePool manifests), that's the known first-apply chicken-and-egg case in
-`infra/modules/cluster/README.md` — re-run `apply` once.
+If the first `apply` errors reaching the cluster — Karpenter's Helm release /
+NodePool manifests, or anything further downstream that also talks to the
+cluster (the `eda` namespace, the platform module's Helm releases) — that's
+the known first-apply chicken-and-egg case in
+`infra/modules/cluster/README.md`. Just re-run `apply`; it's idempotent, so
+anything already created is left alone and only the failed resources retry.
 
 ### Driving the demo
 
