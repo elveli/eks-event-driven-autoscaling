@@ -4,12 +4,12 @@ An EKS showcase: an async job-processing pipeline whose autoscaling is the
 visible product. Submit a batch → jobs hit SQS → worker pods scale **0→N** via
 KEDA → Karpenter adds nodes when pods don't fit → a dashboard shows it live.
 
-**KEDA** is a Kubernetes autoscaler that scales pods on external event
-sources — here, SQS queue depth — instead of just CPU/memory, including down
-to **zero** pods when the queue is empty. **Karpenter** is the node
-autoscaler: instead of sizing fixed node groups, it provisions and removes
-EC2 capacity directly to fit whatever's actually unschedulable, then
-consolidates it away once it's idle.
+- **KEDA** — a Kubernetes autoscaler that scales pods on external event
+  sources (here, SQS queue depth) instead of just CPU/memory, including down
+  to **zero** pods when the queue is empty.
+- **Karpenter** — the node autoscaler. Instead of sizing fixed node groups,
+  it provisions and removes EC2 capacity directly to fit whatever's actually
+  unschedulable, then consolidates that capacity away once it's idle.
 
 The full architecture, conventions, and build phases are documented in
 [`CLAUDE.md`](CLAUDE.md) — that file is the source of truth; this README is
