@@ -215,6 +215,11 @@ resource "aws_ecr_repository" "repos" {
 
   name                 = each.value
   image_tag_mutability = "IMMUTABLE" # git-SHA tags, never overwritten
+  # Without this, `terraform destroy` errors with "repository not empty"
+  # whenever CI has pushed images since the last teardown — hit this for
+  # real on 2026-07-11 and worked around it by hand. Acceptable here: these
+  # are CI-rebuildable image tags, not data.
+  force_delete = true
 
   image_scanning_configuration {
     scan_on_push = true

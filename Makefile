@@ -4,7 +4,7 @@ TF    := terraform -chdir=infra/environments/dev
 STACK := infra/environments/dev/manage-aws-dev-stack.sh
 
 .DEFAULT_GOAL := help
-.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results watch pods nodes nodegroups top scaling apps logs-worker logs-lambda logs-karpenter logs-keda irsa healthchecks inventory
+.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results ecr watch pods nodes nodegroups top scaling apps logs-worker logs-lambda logs-karpenter logs-keda irsa healthchecks inventory
 
 help:        ## this menu
 	@grep -E '^[a-zA-Z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN { FS = ":.*?## " } { printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2 }'
@@ -95,6 +95,21 @@ purge:       ## drop every queued job (in-flight ones finish; pods then drain to
 results:     ## worker output objects in S3, newest last + total count
 	@aws s3 ls "s3://$$($(TF) output -raw bucket_name)/results/" | tail -20
 	@echo "total: $$(aws s3 ls "s3://$$($(TF) output -raw bucket_name)/results/" | wc -l | tr -d ' ') results"
+
+ecr:         ## images in both ECR repos: tag, pushed time, size (most recent first)
+	@REGION="$$($(TF) output -raw aws_region 2>/dev/null)"; REGION="$${REGION:-us-east-1}"; \
+	for REPO in eda-web eda-worker; do \
+	  echo "── $$REPO ──────────────────────────────────"; \
+	  OUT="$$(aws ecr describe-images --region "$$REGION" --repository-name "$$REPO" \
+	    --query 'reverse(sort_by(imageDetails,&imagePushedAt))[].[imageTags[0],imagePushedAt,imageSizeInBytes]' \
+	    --output text 2>/dev/null)"; \
+	  if [ -z "$$OUT" ]; then \
+	    echo "  (no images / repo not found)"; \
+	  else \
+	    echo "$$OUT" | awk -F'\t' '{printf "  %-10s  %s  %6.1f MB\n", $$1, substr($$2,1,19), $$3/1048576}'; \
+	  fi; \
+	  echo ""; \
+	done
 
 pods:        ## every pod in the cluster, with the node it runs on
 	kubectl get pods -A -o wide
