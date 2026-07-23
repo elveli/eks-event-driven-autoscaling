@@ -13,6 +13,13 @@ kind: Application
 metadata:
   name: eda
   namespace: argocd
+  # Lets `kubectl delete application eda -n argocd` cascade-delete everything
+  # it manages (Ingress, Deployments, ScaledObject, HPA, RBAC) instead of
+  # just removing Argo CD's own tracking object and leaving them orphaned.
+  # `make predestroy` relies on this to clean up the Ingress -> ALB while the
+  # LB Controller still has nodes to run its own finalizer on.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:

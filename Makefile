@@ -4,7 +4,7 @@ TF    := terraform -chdir=infra/environments/dev
 STACK := infra/environments/dev/manage-aws-dev-stack.sh
 
 .DEFAULT_GOAL := help
-.PHONY: help plan apply destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results ecr watch pods nodes nodegroups top scaling apps logs-worker logs-lambda logs-karpenter logs-keda irsa healthchecks inventory
+.PHONY: help plan apply predestroy destroy kubeconfig ci-var ci-run gitops argocd url submit stats queue dlq purge results ecr watch pods nodes nodegroups top scaling apps logs-worker logs-lambda logs-karpenter logs-keda irsa healthchecks inventory
 
 help:        ## this menu
 	@grep -E '^[a-zA-Z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN { FS = ":.*?## " } { printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2 }'
@@ -17,7 +17,24 @@ plan:        ## terraform plan
 apply:       ## provision VPC + EKS + Karpenter + platform + app resources (~20 min)
 	$(STACK) apply
 
-destroy:     ## the cost kill switch: tear it all down (state bucket survives)
+# terraform destroy tears down the system node group before Argo CD's own
+# Application object ever gets a chance to clean up what it deployed. Once
+# the node group's gone, the LB Controller/KEDA pods have nowhere to run,
+# so the Ingress they're managing can never be properly torn down and its
+# ALB is orphaned — it sat there blocking VPC deletion for 20+ minutes on
+# 2026-07-23 until it was cleaned up by hand. predestroy avoids that by
+# deleting the Application (which cascade-deletes the Ingress etc. per its
+# finalizer in gitops/apps/eda-app.yaml) while the cluster can still process
+# it, before terraform ever touches the node group.
+predestroy:  ## delete the Argo CD Application first so Ingress/ALB + ScaledObject clean up properly (auto-run by destroy)
+	@if kubectl get application eda -n argocd >/dev/null 2>&1; then \
+	  echo "Deleting Argo CD Application 'eda' (cascades to Ingress/ALB, ScaledObject, etc. while controllers can still run)..."; \
+	  kubectl delete application eda -n argocd --wait=true --timeout=180s; \
+	else \
+	  echo "No Argo CD Application found -- nothing to clean up."; \
+	fi
+
+destroy: predestroy  ## the cost kill switch: tear it all down (state bucket survives)
 	$(STACK) destroy
 
 kubeconfig:  ## point kubectl at the cluster

@@ -52,6 +52,12 @@ resource "aws_sqs_queue" "jobs" {
 
 resource "aws_s3_bucket" "jobs" {
   bucket = local.bucket_name
+  # Same reasoning as force_delete on the ECR repos: without this,
+  # terraform destroy errors with "BucketNotEmpty" whenever there are
+  # leftover job payloads/results (there always will be after a demo run).
+  # These are worker-generated artifacts, not data worth protecting from
+  # accidental teardown.
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "jobs" {
