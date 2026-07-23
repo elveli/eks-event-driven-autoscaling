@@ -20,7 +20,7 @@ resources:
 images:
 - name: eda-web
   newName: 558543825081.dkr.ecr.us-east-1.amazonaws.com/eda-web
-  newTag: 0fb3780c5772285d437b1e67507318a7139e9a0a
+  newTag: ee956e483b034feb598d90a4a737da207c3408a9
 - name: eda-worker
   newName: 558543825081.dkr.ecr.us-east-1.amazonaws.com/eda-worker
-  newTag: 0fb3780c5772285d437b1e67507318a7139e9a0a
+  newTag: ee956e483b034feb598d90a4a737da207c3408a9
