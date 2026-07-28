@@ -5,6 +5,8 @@
 crash.log
 *.tfvars
 !*.tfvars.example
+backend.hcl
+!backend.hcl.example
 .env
 *.pem
 *.key

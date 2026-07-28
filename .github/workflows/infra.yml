@@ -31,7 +31,7 @@ jobs:
         with:
           terraform_version: "~1.7"
 
-      - run: terraform init
+      - run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
       - run: terraform fmt -check -recursive
       - run: terraform validate
 

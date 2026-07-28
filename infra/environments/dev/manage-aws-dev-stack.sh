@@ -19,11 +19,11 @@ usage() {
 
 case "$1" in
   plan)
-    terraform init -input=false
+    terraform init -input=false -backend-config=backend.hcl
     terraform plan -input=false
     ;;
   apply)
-    terraform init -input=false
+    terraform init -input=false -backend-config=backend.hcl
     terraform apply
     ;;
   destroy)

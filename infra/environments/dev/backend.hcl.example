@@ -1,0 +1,3 @@
+# Copy to backend.hcl (gitignored) and fill in the bucket name from
+# infra/bootstrap's `terraform output state_bucket_name`.
+bucket = "eks-event-driven-autoscaling-tfstate-YOUR-ACCOUNT-ID"
