@@ -257,13 +257,13 @@ goes in it.
 | 1 | Bootstrap (state bucket + lock table) | ✅ applied |
 | 2 | Network (VPC, single NAT, VPC endpoints) | ✅ applied |
 | 3 | Cluster (EKS, OIDC/IRSA, Karpenter) | ✅ applied |
-| 4 | Platform (LB Controller, KEDA, Argo CD) | 🧩 code complete, plans clean — awaiting apply |
-| 5 | App resources (SQS, S3, Lambda, ECR, app IRSA, CI OIDC) | 🧩 code complete, plans clean — awaiting apply |
-| 6 | App + GitOps (worker, dashboard, ScaledObject, CI) | 🧩 code complete — awaiting apply + first CI run |
+| 4 | Platform (LB Controller, KEDA, Argo CD) | ✅ applied |
+| 5 | App resources (SQS, S3, Lambda, ECR, app IRSA, CI OIDC) | ✅ applied |
+| 6 | App + GitOps (worker, dashboard, ScaledObject, CI) | ✅ applied |
 
-All six phases are code complete. What remains is operational: apply, run CI
-once to populate ECR, hand the manifests to Argo CD (the bring-up runbook
-below), and verify the definition of done in `CLAUDE.md`.
+All six phases are code complete and applied. The full demo loop (submit a
+batch → workers scale 0 → N → queue drains → scale back to 0) has been
+verified live end-to-end; see the definition of done in `CLAUDE.md`.
 
 ## Operating the dev stack
 
